@@ -4,6 +4,7 @@ use atom_syndication::{
     PersonBuilder, Text,
 };
 use chrono::{FixedOffset, NaiveDateTime, TimeZone};
+use tracing::debug;
 use std::collections::BTreeMap;
 use ytextract::{Channel, Video};
 
@@ -11,8 +12,10 @@ pub fn convert_feed(videos: Vec<Video>, channel: Channel, filter: Filter) -> Str
     let entries: Vec<Entry> = videos
         .into_iter()
         .filter(|v| filter.filter_video(v))
+        .take(filter.count.unwrap_or(usize::MAX))
         .map(map_video)
         .collect();
+    debug!("Filtered to {} videos", entries.len());
     let last_update = if let Some(e) = entries.get(0) {
         e.updated
     } else {

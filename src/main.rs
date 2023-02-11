@@ -11,6 +11,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
+use clap::Parser;
 use filter::Filter;
 use futures::StreamExt;
 use parking_lot::Mutex;
@@ -21,11 +22,22 @@ use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ytextract::{Channel, Client as YTClient, Video};
 
-const VIDEO_LIMIT: usize = 20;
-const VIDEO_TIMEOUT: u64 = 15;
+#[derive(Parser, Debug, Clone)]
+#[command(author, version, about)]
+struct Config {
+    /// Maximum amount of videos to fetch per channel
+    #[arg(short = 'l', long = "limit", default_value_t = 20)]
+    video_limit: usize,
+
+    /// How long to keep videos cached (in seconds)
+    #[arg(short = 'c', long = "cache", default_value_t = 300)]
+    cache_timeout: u64,
+}
 
 #[tokio::main]
 async fn main() {
+    let config = Config::parse();
+
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(
@@ -40,11 +52,12 @@ async fn main() {
         .layer(Extension(YTClient::new()))
         .layer(Extension(HTTPClient::new()))
         .layer(Extension(Cache::<String, Option<String>>::new(None)))
-        .layer(Extension(Cache::<String, Option<ChannelInfo>>::new(
-            Some(Duration::from_secs(VIDEO_TIMEOUT * 60)),
-        )));
+        .layer(Extension(Cache::<String, Option<ChannelInfo>>::new(Some(
+            Duration::from_secs(config.cache_timeout.clone()),
+        ))))
+        .layer(Extension(config));
 
-    info!("Starting at http://0.0.0.0:3000");
+    info!("Starting server at http://0.0.0.0:3000");
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
@@ -61,6 +74,7 @@ pub struct ChannelInfo {
 async fn get_feed(
     Path(channel_name): Path<String>,
     Query(filter): Query<Filter>,
+    Extension(config): Extension<Config>,
     Extension(yt_client): Extension<YTClient>,
     Extension(http_client): Extension<HTTPClient>,
     Extension(id_cache): Extension<Cache<String, Option<String>>>,
@@ -92,17 +106,12 @@ async fn get_feed(
     };
     let channel_id = channel_id.ok_or_else(|| Error::ChannelNotFound(channel_name))?;
 
-    let video_count = if let Some(count) = filter.count {
-        VIDEO_LIMIT.min(count)
-    } else {
-        VIDEO_LIMIT
-    };
     let info = {
         let channel_id = channel_id.clone();
         video_cache
             .get_cached(channel_id.clone(), || {
                 Box::pin(async move {
-                    match get_channel_info(yt_client, &channel_id, video_count).await {
+                    match get_channel_info(yt_client, &channel_id, config.video_limit).await {
                         Ok(c) => Ok::<_, Error>(Some(c)),
                         Err(err) => {
                             error!("Failed to extract videos from channel '{channel_id}': {err}");
