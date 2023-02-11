@@ -13,13 +13,13 @@ use axum::{
 };
 use filter::Filter;
 use futures::StreamExt;
+use parking_lot::Mutex;
 use reqwest::Client as HTTPClient;
 use scraper::{Html, Selector};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::Mutex;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use ytextract::{Client as YTClient, Video};
+use ytextract::{Channel, Client as YTClient, Video};
 
 const VIDEO_LIMIT: usize = 20;
 const VIDEO_TIMEOUT: u64 = 15;
@@ -30,7 +30,7 @@ async fn main() {
         .with(fmt::layer())
         .with(
             EnvFilter::builder()
-                .with_default_directive("ytfeed=INFO".parse().unwrap())
+                .with_default_directive("ytfeed=DEBUG".parse().unwrap())
                 .from_env_lossy(),
         )
         .init();
@@ -39,10 +39,10 @@ async fn main() {
         .route("/videos/:channel_id", get(get_feed))
         .layer(Extension(YTClient::new()))
         .layer(Extension(HTTPClient::new()))
-        .layer(Extension(Cache::<String, String>::new(None)))
-        .layer(Extension(Cache::<String, Vec<Video>>::new(Some(
-            Duration::from_secs(VIDEO_TIMEOUT * 60),
-        ))));
+        .layer(Extension(Cache::<String, Option<String>>::new(None)))
+        .layer(Extension(Cache::<String, Option<ChannelInfo>>::new(
+            Some(Duration::from_secs(VIDEO_TIMEOUT * 60)),
+        )));
 
     info!("Starting at http://0.0.0.0:3000");
 
@@ -52,78 +52,112 @@ async fn main() {
         .unwrap();
 }
 
+#[derive(Clone)]
+pub struct ChannelInfo {
+    channel: Channel,
+    videos: Vec<Video>,
+}
+
 async fn get_feed(
     Path(channel_name): Path<String>,
     Query(filter): Query<Filter>,
     Extension(yt_client): Extension<YTClient>,
     Extension(http_client): Extension<HTTPClient>,
-    Extension(id_cache): Extension<Cache<String, String>>,
-    Extension(video_cache): Extension<Cache<String, Vec<Video>>>,
+    Extension(id_cache): Extension<Cache<String, Option<String>>>,
+    Extension(video_cache): Extension<Cache<String, Option<ChannelInfo>>>,
 ) -> Result<Response, Error> {
     // Get channel id
-    let channel_id = if channel_name.starts_with("@") {
-        id_cache
-            .get_cached(&channel_name.clone(), || {
-                Box::pin(async move {
-                    let id = get_channel_id(&channel_name, &http_client).await?;
-                    Ok::<_, Error>(id)
+    let channel_id = {
+        let channel_name = channel_name.clone();
+        if channel_name.starts_with("@") {
+            id_cache
+                .get_cached(channel_name.clone(), || {
+                    Box::pin(async move {
+                        match get_channel_id(&channel_name, &http_client).await {
+                            Ok(id) => {
+                                debug!("Got channel id '{id}' for '{channel_name}'");
+                                Ok::<_, Error>(Some(id))
+                            }
+                            Err(err) => {
+                                error!("Failed to get channel_id for '{channel_name}': {err}");
+                                Ok::<_, Error>(None)
+                            }
+                        }
+                    })
                 })
-            })
-            .await?
-    } else {
-        channel_name
+                .await?
+        } else {
+            Some(channel_name)
+        }
     };
-
-    let channel = yt_client.channel(channel_id.parse()?).await?;
+    let channel_id = channel_id.ok_or_else(|| Error::ChannelNotFound(channel_name))?;
 
     let video_count = if let Some(count) = filter.count {
         VIDEO_LIMIT.min(count)
     } else {
         VIDEO_LIMIT
     };
-    let videos = video_cache
-        .get_cached(&channel_id, || {
-            let channel = channel.clone();
-            Box::pin(async move {
-                let videos: Arc<Mutex<Vec<Video>>> = Arc::new(Mutex::new(Vec::new()));
-                channel
-                    .uploads()
-                    .await?
-                    .take(video_count)
-                    .for_each_concurrent(32, |video| {
-                        let videos = videos.clone();
-                        async move {
-                            match video {
-                                Ok(video) => match video.upgrade().await {
-                                    Ok(video) => {
-                                        videos.lock().await.push(video);
-                                    }
-                                    Err(e) => error!("Failed to get video info: {e}"),
-                                },
-                                Err(e) => {
-                                    error!("Failed to get video: {e}")
-                                }
-                            }
+    let info = {
+        let channel_id = channel_id.clone();
+        video_cache
+            .get_cached(channel_id.clone(), || {
+                Box::pin(async move {
+                    match get_channel_info(yt_client, &channel_id, video_count).await {
+                        Ok(c) => Ok::<_, Error>(Some(c)),
+                        Err(err) => {
+                            error!("Failed to extract videos from channel '{channel_id}': {err}");
+                            Ok::<_, Error>(None)
                         }
-                    })
-                    .await;
-                let videos: Vec<Video> = videos.lock().await.to_vec();
-                info!("Got {} videos for '{}'", videos.len(), channel.name());
-                Ok::<_, Error>(videos)
+                    }
+                })
             })
-        })
-        .await?;
+            .await?
+    };
+    let info = info.ok_or_else(|| Error::Extraction(channel_id))?;
 
-    let feed = feed::convert_feed(videos, channel, filter);
+    let feed = feed::convert_feed(info.videos, info.channel, filter);
     Ok(Response::builder()
         .header("Content-Type", "text/xml")
         .body(boxed(feed))
         .unwrap())
 }
 
+/// Get the channel info from a channel id
+async fn get_channel_info(
+    yt_client: YTClient,
+    channel_id: &str,
+    video_count: usize,
+) -> Result<ChannelInfo, Error> {
+    let channel = yt_client.channel(channel_id.parse()?).await?;
+    let videos: Arc<Mutex<Vec<Video>>> = Arc::new(Mutex::new(Vec::new()));
+    channel
+        .uploads()
+        .await?
+        .take(video_count)
+        .for_each_concurrent(32, |video| {
+            let videos = videos.clone();
+            async move {
+                match video {
+                    Ok(video) => match video.upgrade().await {
+                        Ok(video) => {
+                            videos.lock().push(video);
+                        }
+                        Err(e) => error!("Failed to get video info: {e}"),
+                    },
+                    Err(e) => {
+                        error!("Failed to get video: {e}")
+                    }
+                }
+            }
+        })
+        .await;
+    let videos: Vec<Video> = videos.lock().to_vec();
+    debug!("Got {} videos for '{}'", videos.len(), channel.name());
+    Ok(ChannelInfo { channel, videos })
+}
+
 /// Scrapes a channel page to get the channel id
 async fn get_channel_id(channel_name: &str, client: &HTTPClient) -> Result<String, Error> {
-    info!("Get channel id of {channel_name}");
     let response = client
         .get(format!("https://www.youtube.com/{}", channel_name))
         .send()

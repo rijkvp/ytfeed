@@ -11,8 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::broadcast;
-use tracing::info;
-
+use tracing::debug;
 
 #[derive(Clone)]
 pub struct Cache<K, V>
@@ -52,17 +51,17 @@ pub type BoxFut<'a, O> = Pin<Box<dyn Future<Output = O> + Send + 'a>>;
 
 impl<K, V> Cache<K, V>
 where
-    K: Eq + Hash + Clone + Send + Sync + 'static,
+    K: Eq + Hash + std::fmt::Debug + Clone + Send + Sync + 'static,
     V: Clone + Send + Sync + 'static,
 {
-    pub fn new(refresh_interval: Option<Duration>) -> Self {
+    pub fn new(timeout: Option<Duration>) -> Self {
         Self {
             items: Default::default(),
-            timeout: refresh_interval,
+            timeout,
         }
     }
 
-    pub async fn get_cached<F, E>(&self, key: &K, f: F) -> Result<V, CacheError>
+    pub async fn get_cached<F, E>(&self, key: K, f: F) -> Result<V, CacheError>
     where
         F: FnOnce() -> BoxFut<'static, Result<V, E>>,
         E: std::fmt::Display + 'static,
@@ -78,7 +77,7 @@ where
                 if self.timeout.is_none() || Some(fetched_at.elapsed()) < self.timeout {
                     return Ok(value.clone());
                 } else {
-                    info!("stale, refresh item");
+                    debug!("{key:?} has timed-out, fetching new value");
                 }
             }
 
