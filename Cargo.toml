@@ -2,6 +2,11 @@
 name = "ytfeed"
 version = "0.1.0"
 edition = "2021"
+authors = ["Rijk van Putten <rijk@rijkvp.nl>"]
+description = "YouTube feed proxy"
+readme = "README.md"
+homepage = "https://github.com/rijkvp/ytfeed"
+license = "AGPL-3.0"
 
 [dependencies]
 ytextract = "0.11"

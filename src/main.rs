@@ -17,7 +17,11 @@ use futures::StreamExt;
 use parking_lot::Mutex;
 use reqwest::Client as HTTPClient;
 use scraper::{Html, Selector};
-use std::{sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 use tracing::{debug, error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use ytextract::{Channel, Client as YTClient, Video};
@@ -25,6 +29,10 @@ use ytextract::{Channel, Client as YTClient, Video};
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 struct Config {
+    /// IP bind address
+    #[arg(short = 'b', long = "bind", default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8000))]
+    bind_address: SocketAddr,
+
     /// Maximum amount of videos to fetch per channel
     #[arg(short = 'l', long = "limit", default_value_t = 20)]
     video_limit: usize,
@@ -47,8 +55,9 @@ async fn main() {
         )
         .init();
 
+    let bind_address = config.bind_address.clone();
     let app = Router::new()
-        .route("/videos/:channel_id", get(get_feed))
+        .route("/:channel_id", get(get_feed))
         .layer(Extension(YTClient::new()))
         .layer(Extension(HTTPClient::new()))
         .layer(Extension(Cache::<String, Option<String>>::new(None)))
@@ -57,9 +66,9 @@ async fn main() {
         ))))
         .layer(Extension(config));
 
-    info!("Starting server at http://0.0.0.0:3000");
+    info!("Starting server at http://{}", bind_address);
 
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    axum::Server::bind(&bind_address)
         .serve(app.into_make_service())
         .await
         .unwrap();

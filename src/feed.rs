@@ -4,9 +4,12 @@ use atom_syndication::{
     PersonBuilder, Text,
 };
 use chrono::{FixedOffset, NaiveDateTime, TimeZone};
-use tracing::debug;
 use std::collections::BTreeMap;
+use tracing::debug;
 use ytextract::{Channel, Video};
+
+const NAME: &str = env!("CARGO_PKG_NAME");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn convert_feed(videos: Vec<Video>, channel: Channel, filter: Filter) -> String {
     let entries: Vec<Entry> = videos
@@ -42,8 +45,8 @@ pub fn convert_feed(videos: Vec<Video>, channel: Channel, filter: Filter) -> Str
         .title(channel.name())
         .updated(last_update)
         .generator(Some(Generator {
-            value: "ytfeed".to_string(),
-            version: Some("0.0.1".to_string()),
+            value: NAME.to_string(),
+            version: Some(VERSION.to_string()),
             ..Default::default()
         }))
         .subtitle(Some(Text::plain(format!(
