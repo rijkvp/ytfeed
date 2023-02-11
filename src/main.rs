@@ -39,8 +39,8 @@ async fn main() {
         .route("/videos/:channel_id", get(get_feed))
         .layer(Extension(YTClient::new()))
         .layer(Extension(HTTPClient::new()))
-        .layer(Extension(Cache::<String>::new(None)))
-        .layer(Extension(Cache::<Vec<Video>>::new(Some(
+        .layer(Extension(Cache::<String, String>::new(None)))
+        .layer(Extension(Cache::<String, Vec<Video>>::new(Some(
             Duration::from_secs(VIDEO_TIMEOUT * 60),
         ))));
 
@@ -57,13 +57,13 @@ async fn get_feed(
     Query(filter): Query<Filter>,
     Extension(yt_client): Extension<YTClient>,
     Extension(http_client): Extension<HTTPClient>,
-    Extension(id_cache): Extension<Cache<String>>,
-    Extension(video_cache): Extension<Cache<Vec<Video>>>,
+    Extension(id_cache): Extension<Cache<String, String>>,
+    Extension(video_cache): Extension<Cache<String, Vec<Video>>>,
 ) -> Result<Response, Error> {
     // Get channel id
     let channel_id = if channel_name.starts_with("@") {
         id_cache
-            .get_cached(|| {
+            .get_cached(&channel_name.clone(), || {
                 Box::pin(async move {
                     let id = get_channel_id(&channel_name, &http_client).await?;
                     Ok::<_, Error>(id)
@@ -82,7 +82,7 @@ async fn get_feed(
         VIDEO_LIMIT
     };
     let videos = video_cache
-        .get_cached(|| {
+        .get_cached(&channel_id, || {
             let channel = channel.clone();
             Box::pin(async move {
                 let videos: Arc<Mutex<Vec<Video>>> = Arc::new(Mutex::new(Vec::new()));

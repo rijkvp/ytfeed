@@ -3,7 +3,9 @@
  */
 use futures::Future;
 use parking_lot::Mutex;
+use std::hash::Hash;
 use std::{
+    collections::HashMap,
     pin::Pin,
     sync::{Arc, Weak},
     time::{Duration, Instant},
@@ -11,18 +13,18 @@ use std::{
 use tokio::sync::broadcast;
 use tracing::info;
 
-pub type BoxFut<'a, O> = Pin<Box<dyn Future<Output = O> + Send + 'a>>;
 
 #[derive(Clone)]
-pub struct Cache<T>
+pub struct Cache<K, V>
 where
-    T: Clone + Send + Sync + 'static,
+    K: Eq + Hash + Clone,
+    V: Clone + Send + Sync + 'static,
 {
-    inner: Arc<Mutex<CacheInner<T>>>,
-    refresh_interval: Option<Duration>,
+    timeout: Option<Duration>,
+    items: Arc<Mutex<HashMap<K, CacheItem<V>>>>,
 }
 
-struct CacheInner<T>
+struct CacheItem<T>
 where
     T: Clone + Send + Sync + 'static,
 {
@@ -30,7 +32,7 @@ where
     task: Option<Weak<broadcast::Sender<Result<T, CacheError>>>>,
 }
 
-impl<T> Default for CacheInner<T>
+impl<T> Default for CacheItem<T>
 where
     T: Clone + Send + Sync + 'static,
 {
@@ -46,57 +48,63 @@ where
 #[error("{0}")]
 pub struct CacheError(String);
 
-impl<T> Cache<T>
+pub type BoxFut<'a, O> = Pin<Box<dyn Future<Output = O> + Send + 'a>>;
+
+impl<K, V> Cache<K, V>
 where
-    T: Clone + Send + Sync + 'static,
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
 {
     pub fn new(refresh_interval: Option<Duration>) -> Self {
         Self {
-            inner: Default::default(),
-            refresh_interval,
+            items: Default::default(),
+            timeout: refresh_interval,
         }
     }
 
-    pub async fn get_cached<F, E>(&self, f: F) -> Result<T, CacheError>
+    pub async fn get_cached<F, E>(&self, key: &K, f: F) -> Result<V, CacheError>
     where
-        F: FnOnce() -> BoxFut<'static, Result<T, E>>,
+        F: FnOnce() -> BoxFut<'static, Result<V, E>>,
         E: std::fmt::Display + 'static,
     {
         let mut rx = {
-            let mut inner = self.inner.lock();
+            let mut items = self.items.lock();
+
+            // Get exsisting or create new item
+            let item = items.entry(key.clone()).or_default();
 
             // Check if item is in the cache
-            if let Some((fetched_at, value)) = inner.cached.as_ref() {
-                if self.refresh_interval.is_none()
-                    || Some(fetched_at.elapsed()) < self.refresh_interval
-                {
+            if let Some((fetched_at, value)) = item.cached.as_ref() {
+                if self.timeout.is_none() || Some(fetched_at.elapsed()) < self.timeout {
                     return Ok(value.clone());
                 } else {
                     info!("stale, refresh item");
                 }
             }
 
-            if let Some(tasks) = inner.task.as_ref().and_then(Weak::upgrade) {
+            if let Some(tasks) = item.task.as_ref().and_then(Weak::upgrade) {
                 // Subscribe to the task's channel if already being fetched
                 tasks.subscribe()
             } else {
                 // Create a new channel to fetch the value
-                let (tx, rx) = broadcast::channel::<Result<T, CacheError>>(1);
+                let (tx, rx) = broadcast::channel::<Result<V, CacheError>>(1);
                 let tx = Arc::new(tx);
-                inner.task = Some(Arc::downgrade(&tx));
-                let inner = self.inner.clone();
+                item.task = Some(Arc::downgrade(&tx));
 
+                let items = self.items.clone();
+                let key = key.clone();
                 // Execute the closure first to avoid sending it across threads
                 let fut = f();
                 tokio::spawn(async move {
                     let res = fut.await;
                     {
-                        let mut inner = inner.lock();
-                        inner.task = None;
+                        let mut items = items.lock();
+                        let item = items.entry(key).or_default();
+                        item.task = None;
 
                         match res {
                             Ok(value) => {
-                                inner.cached.replace((Instant::now(), value.clone()));
+                                item.cached.replace((Instant::now(), value.clone()));
                                 let _ = tx.send(Ok(value));
                             }
                             Err(e) => {
