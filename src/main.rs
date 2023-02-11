@@ -55,14 +55,14 @@ async fn main() {
         )
         .init();
 
-    let bind_address = config.bind_address.clone();
+    let bind_address = config.bind_address;
     let app = Router::new()
         .route("/:channel_id", get(get_feed))
         .layer(Extension(YTClient::new()))
         .layer(Extension(HTTPClient::new()))
         .layer(Extension(Cache::<String, Option<String>>::new(None)))
         .layer(Extension(Cache::<String, Option<ChannelInfo>>::new(Some(
-            Duration::from_secs(config.cache_timeout.clone()),
+            Duration::from_secs(config.cache_timeout),
         ))))
         .layer(Extension(config));
 
@@ -92,7 +92,7 @@ async fn get_feed(
     // Get channel id
     let channel_id = {
         let channel_name = channel_name.clone();
-        if channel_name.starts_with("@") {
+        if channel_name.starts_with('@') {
             id_cache
                 .get_cached(channel_name.clone(), || {
                     Box::pin(async move {

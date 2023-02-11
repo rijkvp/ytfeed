@@ -137,7 +137,7 @@ fn map_video(v: Video) -> Entry {
                         thumbnail_ext,
                         ExtensionBuilder::default()
                             .name("itunes:image".to_string())
-                            .attrs(thumbnail_attrs.clone())
+                            .attrs(thumbnail_attrs)
                             .build(),
                     ],
                 ),

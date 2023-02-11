@@ -70,8 +70,7 @@ impl Filter {
             }
         }
         if let Some(tag_match) = &self.tag {
-            let tags: Vec<String> = v
-                .hashtags()
+            if v.hashtags()
                 .filter_map(|t| {
                     let s = t
                         .trim()
@@ -83,8 +82,8 @@ impl Filter {
                         None
                     }
                 })
-                .collect();
-            if !tags.contains(&tag_match) {
+                .any(|t| &t == tag_match)
+            {
                 return false;
             }
         }
@@ -152,8 +151,8 @@ mod range_format {
     {
         let str = String::deserialize(deserializer)?;
         let center = str
-            .find("-")
-            .ok_or(Error::custom("missing '-' split on range"))?;
+            .find('-')
+            .ok_or_else(|| Error::custom("missing '-' split on range"))?;
         let start_slice = &str[..center];
         let end_slice = &str[center + 1..];
         if start_slice.is_empty() && end_slice.is_empty() {
