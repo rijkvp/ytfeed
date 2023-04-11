@@ -1,4 +1,4 @@
-use crate::filter::Filter;
+use crate::{filter::Filter, Channel, ChannelInfo, Video};
 use atom_syndication::{
     extension::ExtensionBuilder, Entry, EntryBuilder, FeedBuilder, Generator, LinkBuilder,
     PersonBuilder, Text,
@@ -6,17 +6,17 @@ use atom_syndication::{
 use chrono::{FixedOffset, NaiveDateTime, TimeZone};
 use std::collections::BTreeMap;
 use tracing::debug;
-use ytextract::{Channel, Video};
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub fn convert_feed(videos: Vec<Video>, channel: Channel, filter: Filter) -> String {
-    let entries: Vec<Entry> = videos
+pub fn convert_feed(info: ChannelInfo, filter: Filter) -> String {
+    let entries: Vec<Entry> = info
+        .videos
         .into_iter()
         .filter(|v| filter.filter_video(v))
         .take(filter.count.unwrap_or(usize::MAX))
-        .map(map_video)
+        .map(|v| map_video(v, &info.channel))
         .collect();
     debug!("Filtered to {} videos", entries.len());
     let last_update = if let Some(e) = entries.get(0) {
@@ -41,8 +41,8 @@ pub fn convert_feed(videos: Vec<Video>, channel: Channel, filter: Filter) -> Str
                 "http://www.itunes.com/dtds/podcast-1.0.dtd".to_string(),
             ),
         ]))
-        .id(format!("ytfeed-{}-{}", channel.id(), filter.id()))
-        .title(channel.name())
+        .id(format!("ytfeed-{}-{}", info.channel.id, filter.id()))
+        .title(info.channel.title.clone())
         .updated(last_update)
         .generator(Some(Generator {
             value: NAME.to_string(),
@@ -51,7 +51,7 @@ pub fn convert_feed(videos: Vec<Video>, channel: Channel, filter: Filter) -> Str
         }))
         .subtitle(Some(Text::plain(format!(
             "{} YouTube's channel feed",
-            channel.name()
+            info.channel.title
         ))))
         .link(
             LinkBuilder::default()
@@ -64,38 +64,35 @@ pub fn convert_feed(videos: Vec<Video>, channel: Channel, filter: Filter) -> Str
     feed.to_string()
 }
 
-fn map_video(v: Video) -> Entry {
+fn map_video(v: Video, c: &Channel) -> Entry {
     let published_date = FixedOffset::west_opt(0)
         .unwrap()
-        .from_utc_datetime(&v.date().and_hms_opt(0, 0, 0).unwrap());
+        .from_utc_datetime(&v.date.and_hms_opt(0, 0, 0).unwrap());
     let thumbnail_attrs = BTreeMap::from([
-        ("url".to_string(), v.thumbnails()[0].url.to_string()),
-        ("width".to_string(), v.thumbnails()[0].width.to_string()),
-        ("height".to_string(), v.thumbnails()[0].height.to_string()),
+        ("url".to_string(), v.thumbnails[0].url.to_string()),
+        ("width".to_string(), v.thumbnails[0].width.to_string()),
+        ("height".to_string(), v.thumbnails[0].height.to_string()),
     ]);
     let thumbnail_ext = ExtensionBuilder::default()
         .name("media:thumbnail".to_string())
         .attrs(thumbnail_attrs.clone())
         .build();
     EntryBuilder::default()
-        .id(format!("yt:video:{}", v.id()))
-        .title(Text::plain(v.title().to_string()))
-        .summary(Some(Text::plain(v.description().to_string())))
+        .id(format!("yt:video:{}", v.id))
+        .title(Text::plain(v.title.to_string()))
+        .summary(Some(Text::plain(v.description.to_string())))
         .updated(published_date)
         .link(
             LinkBuilder::default()
-                .href(format!("https://www.youtube.com/watch?v={}", v.id()))
+                .href(format!("https://www.youtube.com/watch?v={}", v.id))
                 .rel("alternate".to_string())
                 .build(),
         )
         .published(Some(published_date))
         .author(
             PersonBuilder::default()
-                .name(v.channel().name().to_string())
-                .uri(Some(format!(
-                    "https://www.youtube.com/channel/{}",
-                    v.channel().id()
-                )))
+                .name(c.id.to_string())
+                .uri(Some(format!("https://www.youtube.com/channel/{}", c.id)))
                 .build(),
         )
         .extension((
@@ -106,11 +103,11 @@ fn map_video(v: Video) -> Entry {
                     vec![
                         ExtensionBuilder::default()
                             .name("yt:videoId".to_string())
-                            .value(Some(v.id().to_string()))
+                            .value(Some(v.id.to_string()))
                             .build(),
                         ExtensionBuilder::default()
                             .name("yt:channelId".to_string())
-                            .value(Some(v.channel().id().to_string()))
+                            .value(Some(c.id.clone()))
                             .build(),
                     ],
                 ),
@@ -124,12 +121,12 @@ fn map_video(v: Video) -> Entry {
                                 vec![
                                     ExtensionBuilder::default()
                                         .name("media:title".to_string())
-                                        .value(Some(v.title().to_string()))
+                                        .value(Some(v.title.to_string()))
                                         .build(),
                                     thumbnail_ext.clone(),
                                     ExtensionBuilder::default()
                                         .name("media:description".to_string())
-                                        .value(Some(v.description().to_string()))
+                                        .value(Some(v.description))
                                         .build(),
                                 ],
                             )]))

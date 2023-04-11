@@ -1,22 +1,15 @@
-use std::{fmt::Display, ops::Range};
-
+use crate::Video;
 use serde::Deserialize;
-use ytextract::Video;
+use std::{fmt::Display, ops::Range};
 
 #[derive(Deserialize)]
 pub struct Filter {
     #[serde(alias = "c")]
     pub count: Option<usize>,
-    #[serde(alias = "d", with = "range_format_opt", default)]
-    pub duration: Option<Range<u64>>,
     #[serde(alias = "l", with = "range_format_opt", default)]
-    pub likes: Option<Range<u64>>,
+    pub duration: Option<Range<u64>>,
     #[serde(alias = "v", with = "range_format_opt", default)]
     pub views: Option<Range<u64>>,
-    #[serde(alias = "e")]
-    pub live: Option<bool>,
-    #[serde(alias = "t")]
-    pub tag: Option<String>,
 }
 
 pub trait RangeExt<T> {
@@ -46,44 +39,12 @@ impl RangeNum for u64 {
 impl Filter {
     pub fn filter_video(&self, v: &Video) -> bool {
         if let Some(duration_range) = &self.duration {
-            if !duration_range.contains(&v.duration().as_secs()) {
-                return false;
-            }
-        }
-        if let Some(likes_range) = &self.likes {
-            if let Some(likes) = v.likes() {
-                if !likes_range.contains(&likes) {
-                    return false;
-                }
-            } else {
+            if !duration_range.contains(&v.length.as_secs()) {
                 return false;
             }
         }
         if let Some(views_range) = &self.views {
-            if !views_range.contains(&v.views()) {
-                return false;
-            }
-        }
-        if let Some(live) = self.live {
-            if live != v.live() {
-                return false;
-            }
-        }
-        if let Some(tag_match) = &self.tag {
-            if v.hashtags()
-                .filter_map(|t| {
-                    let s = t
-                        .trim()
-                        .to_lowercase()
-                        .replace(|c: char| c == '#' || !c.is_ascii(), "");
-                    if !s.is_empty() {
-                        Some(s)
-                    } else {
-                        None
-                    }
-                })
-                .any(|t| &t == tag_match)
-            {
+            if !views_range.contains(&v.views) {
                 return false;
             }
         }
@@ -100,21 +61,9 @@ impl Filter {
             str.push('d');
             str.push_str(&duration.to_string());
         }
-        if let Some(likes) = &self.likes {
-            str.push('l');
-            str.push_str(&likes.to_string());
-        }
         if let Some(views) = &self.views {
             str.push('v');
             str.push_str(&views.to_string());
-        }
-        if let Some(live) = &self.live {
-            str.push('e');
-            str.push_str(&live.to_string());
-        }
-        if let Some(tag) = &self.tag {
-            str.push('t');
-            str.push_str(tag);
         }
         str
     }

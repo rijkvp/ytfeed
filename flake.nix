@@ -18,7 +18,7 @@
           cargoLock.lockFile = self + "/Cargo.lock";
         };
         devShells.default = mkShell {
-          nativeBuildInputs = with pkgs; [ rustc cargo cargo-dist cargo-outdated ];
+          nativeBuildInputs = with pkgs; [ rustc cargo clippy cargo-outdated ];
         };
       }
     );
