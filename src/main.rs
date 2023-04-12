@@ -1,8 +1,8 @@
 mod cache;
 mod error;
 mod extractor;
-mod feed;
 mod filter;
+mod proxy;
 
 use crate::{cache::Cache, error::Error};
 use axum::{
@@ -13,16 +13,14 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use chrono::NaiveDate;
 use clap::Parser;
 use filter::Filter;
 use reqwest::Client;
-use serde::Deserialize;
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
-use tracing::{error, info, debug};
+use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser, Debug, Clone)]
@@ -32,7 +30,7 @@ struct Config {
     #[arg(short = 'b', long = "bind", default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8000))]
     bind_address: SocketAddr,
 
-    /// How long to keep videos cached (in seconds)
+    /// How long to keep feeds cached (in seconds)
     #[arg(short = 'c', long = "cache", default_value_t = 300)]
     cache_timeout: u64,
 }
@@ -64,7 +62,7 @@ async fn main() {
     let app = Router::new()
         .route("/:channel_id", get(get_feed))
         .layer(Extension(client))
-        .layer(Extension(Cache::<String, Option<ChannelInfo>>::new(Some(
+        .layer(Extension(Cache::<String, Option<String>>::new(Some(
             Duration::from_secs(config.cache_timeout),
         ))));
 
@@ -76,52 +74,21 @@ async fn main() {
         .unwrap();
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct Thumbnail {
-    width: u64,
-    height: u64,
-    url: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct Video {
-    id: String,
-    title: String,
-    description: String,
-    date: NaiveDate,
-    length: Duration,
-    views: u64,
-    thumbnails: Vec<Thumbnail>,
-}
-
-#[derive(Debug, Clone)]
-struct Channel {
-    title: String,
-    description: String,
-    id: String,
-    url: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ChannelInfo {
-    channel: Channel,
-    videos: Vec<Video>,
-}
-
 async fn get_feed(
     Path(channel_id): Path<String>,
     Query(filter): Query<Filter>,
     Extension(http_client): Extension<Client>,
-    Extension(video_cache): Extension<Cache<String, Option<ChannelInfo>>>,
+    Extension(feed_cache): Extension<Cache<String, Option<String>>>,
 ) -> Result<Response, Error> {
-    debug!("GET feed for '{}'", channel_id);
+    info!("GET feed for '{}'", channel_id);
 
-    let info = {
+    // TODO: Add channel tag stuff back
+    let feed = {
         let channel_id = channel_id.clone();
-        video_cache
+        feed_cache
             .get_cached(channel_id.clone(), || {
                 Box::pin(async move {
-                    match extractor::extract_channel_data(&channel_id, &http_client).await {
+                    match proxy::proxy_feed(&channel_id, filter, &http_client).await {
                         Ok(c) => Ok::<_, Error>(Some(c)),
                         Err(err) => {
                             error!("Failed to extract data from channel '{channel_id}': {err}");
@@ -132,9 +99,8 @@ async fn get_feed(
             })
             .await?
     }
-    .ok_or(Error::Extraction(channel_id))?;
+    .ok_or(Error::Proxy(channel_id))?;
 
-    let feed = feed::convert_feed(info, filter);
     Ok(Response::builder()
         .header("Content-Type", "text/xml")
         .body(boxed(feed))

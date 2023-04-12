@@ -17,21 +17,23 @@ pub enum Error {
     CacheError(#[from] CacheError),
     #[error("Channel '{0}' not found")]
     ChannelNotFound(String),
-    #[error("Failed to extract info from '{0}'")]
-    Extraction(String),
+    #[error("Failed to proxy feed '{0}'")]
+    Proxy(String),
     #[error("JSON parse: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Feed parse: {0}")]
+    Feed(#[from] atom_syndication::Error),
 }
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, log) = match self {
             // Internal
-            Error::Json(_) | Error::Scrape(_) | Error::HttpRequest(_) => (StatusCode::BAD_GATEWAY, true),
+            Error::Json(_) | Error::Feed(_) | Error::Scrape(_) | Error::HttpRequest(_) => (StatusCode::BAD_GATEWAY, true),
             Error::CacheError(_) => (StatusCode::INTERNAL_SERVER_ERROR, true),
             // Other
             Error::ChannelNotFound(_) => (StatusCode::NOT_FOUND, false),
-            Error::Extraction(_) => (StatusCode::BAD_GATEWAY, false),
+            Error::Proxy(_) => (StatusCode::BAD_GATEWAY, false),
         };
         let msg = self.to_string();
         if log {

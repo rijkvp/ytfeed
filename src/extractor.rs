@@ -1,16 +1,39 @@
-use crate::{error::Error, Channel, ChannelInfo, Thumbnail, Video};
-use chrono::NaiveDate;
+use crate::error::Error;
 use reqwest::{Client, StatusCode};
 use scraper::{Html, Selector};
 use serde_json::Value;
 use std::time::Duration;
 use tracing::debug;
 
-pub async fn extract_channel_data(channel_id: &str, client: &Client) -> Result<ChannelInfo, Error> {
-    let response = client
-        .get(format!("https://www.youtube.com/{}/videos", channel_id))
-        .send()
-        .await?;
+#[derive(Debug, Clone)]
+pub struct VideoInfo {
+    pub id: String,
+    pub length: Duration,
+    pub views: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelInfo {
+    pub title: String,
+    pub description: String,
+    pub id: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Extraction {
+    pub channel: ChannelInfo,
+    pub videos: Vec<VideoInfo>,
+}
+
+pub async fn extract_data(channel_id: &str, client: &Client) -> Result<Extraction, Error> {
+    let url = if channel_id.starts_with('@') {
+        format!("https://www.youtube.com/{}/videos", channel_id)
+    } else {
+        format!("https://www.youtube.com/channel/{}/videos", channel_id)
+    };
+    debug!("Scrape URL: {url}");
+    let response = client.get(&url).send().await?;
     if response.status() == StatusCode::NOT_FOUND {
         return Err(Error::ChannelNotFound(channel_id.to_string()));
     }
@@ -28,11 +51,11 @@ pub async fn extract_channel_data(channel_id: &str, client: &Client) -> Result<C
                 .ok_or_else(|| Error::Scrape(String::from("Failed to strip suffix")))?;
             let data: Value = serde_json::from_str(json)?;
             let meta_data = &data["metadata"]["channelMetadataRenderer"];
-            let channel = Channel {
+            let channel = ChannelInfo {
                 title: meta_data["title"].as_str().unwrap().to_string(),
                 id: meta_data["externalId"].as_str().unwrap().to_string(),
                 description: meta_data["description"].as_str().unwrap().to_string(),
-                url: meta_data["channelUrl"].as_str().unwrap().to_string(),
+                url,
             };
             let video_tab = &data["contents"]["twoColumnBrowseResultsRenderer"]["tabs"][1];
             let videos_parent =
@@ -42,15 +65,6 @@ pub async fn extract_channel_data(channel_id: &str, client: &Client) -> Result<C
                 if let Some(item_renderer) = item.get("richItemRenderer") {
                     if let Some(video_renderer) = item_renderer["content"].get("videoRenderer") {
                         let id = video_renderer["videoId"].as_str().unwrap().to_string();
-                        let title = video_renderer["title"]["runs"][0]["text"]
-                            .as_str()
-                            .unwrap()
-                            .to_string();
-                        let description = video_renderer["descriptionSnippet"]["runs"][0]["text"]
-                            .as_str()
-                            .unwrap()
-                            .to_string();
-
                         let length_text =
                             video_renderer["lengthText"]["simpleText"].as_str().unwrap();
                         let mut parts = length_text.split(':');
@@ -69,24 +83,13 @@ pub async fn extract_channel_data(channel_id: &str, client: &Client) -> Result<C
                             .parse()
                             .unwrap();
 
-                        let thumbnails: Vec<Thumbnail> = serde_json::from_value(
-                            video_renderer["thumbnail"]["thumbnails"].clone(),
-                        )?;
-                        let video = Video {
-                            id,
-                            title,
-                            date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
-                            description,
-                            length,
-                            views,
-                            thumbnails,
-                        };
+                        let video = VideoInfo { id, length, views };
                         videos.push(video);
                     }
                 }
             }
             debug!("Extracted {} videos from '{}'", videos.len(), channel.title);
-            return Ok(ChannelInfo { channel, videos });
+            return Ok(Extraction { channel, videos });
         }
     }
     Err(Error::ChannelNotFound(channel_id.to_string()))

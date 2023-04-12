@@ -1,4 +1,5 @@
-use crate::Video;
+use crate::extractor::VideoInfo;
+use atom_syndication::Entry;
 use serde::Deserialize;
 use std::{fmt::Display, ops::Range};
 
@@ -37,14 +38,15 @@ impl RangeNum for u64 {
 }
 
 impl Filter {
-    pub fn filter_video(&self, v: &Video) -> bool {
+    pub fn filter_entry(&self, _e: &Entry, i: &VideoInfo) -> bool {
+        // TODO: Add filters back
         if let Some(duration_range) = &self.duration {
-            if !duration_range.contains(&v.length.as_secs()) {
+            if !duration_range.contains(&i.length.as_secs()) {
                 return false;
             }
         }
         if let Some(views_range) = &self.views {
-            if !views_range.contains(&v.views) {
+            if !views_range.contains(&i.views) {
                 return false;
             }
         }
