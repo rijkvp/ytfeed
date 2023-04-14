@@ -2,7 +2,9 @@ mod cache;
 mod error;
 mod extractor;
 mod filter;
+mod media;
 mod proxy;
+mod range;
 
 use crate::{cache::Cache, error::Error};
 use axum::{
@@ -15,8 +17,10 @@ use axum::{
 };
 use clap::Parser;
 use filter::Filter;
+use proxy::FeedInfo;
 use reqwest::Client;
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
@@ -29,7 +33,6 @@ struct Config {
     /// IP bind address
     #[arg(short = 'b', long = "bind", default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8000))]
     bind_address: SocketAddr,
-
     /// How long to keep feeds cached (in seconds)
     #[arg(short = 'c', long = "cache", default_value_t = 300)]
     cache_timeout: u64,
@@ -62,7 +65,8 @@ async fn main() {
     let app = Router::new()
         .route("/:channel_id", get(get_feed))
         .layer(Extension(client))
-        .layer(Extension(Cache::<String, Option<String>>::new(Some(
+        .layer(Extension(HashMap::<String, String>::new()))
+        .layer(Extension(Cache::<String, Option<FeedInfo>>::new(Some(
             Duration::from_secs(config.cache_timeout),
         ))));
 
@@ -75,23 +79,39 @@ async fn main() {
 }
 
 async fn get_feed(
-    Path(channel_id): Path<String>,
+    Path(channel): Path<String>,
     Query(filter): Query<Filter>,
     Extension(http_client): Extension<Client>,
-    Extension(feed_cache): Extension<Cache<String, Option<String>>>,
+    Extension(mut handle_cache): Extension<HashMap<String, String>>,
+    Extension(feed_cache): Extension<Cache<String, Option<FeedInfo>>>,
 ) -> Result<Response, Error> {
-    info!("GET feed for '{}'", channel_id);
+    info!("Get feed '{}'", channel);
 
-    // TODO: Add channel tag stuff back
-    let feed = {
-        let channel_id = channel_id.clone();
+    let channel_name = if channel.starts_with('@') {
+        handle_cache.get(&channel).unwrap_or(&channel)
+    } else {
+        &channel
+    };
+
+    let feed_info = {
+        let channel_name = channel_name.clone();
         feed_cache
-            .get_cached(channel_id.clone(), || {
+            // TODO: Currently, the cache isn't shared between channel handles and channel ids
+            // Make it possible to update the cache with the returned key value
+            // (Note: this is an exceptional situation due to way the proxy works)
+            .get_cached(channel_name.clone(), || {
                 Box::pin(async move {
-                    match proxy::proxy_feed(&channel_id, filter, &http_client).await {
-                        Ok(c) => Ok::<_, Error>(Some(c)),
+                    match proxy::proxy_feed(&channel_name, &http_client).await {
+                        Ok(feed_info) => {
+                            if channel_name.starts_with('@') {
+                                // Cache the channel id associated with the handle
+                                handle_cache
+                                    .insert(channel_name, feed_info.extraction.channel.id.clone());
+                            }
+                            Ok::<_, Error>(Some(feed_info))
+                        }
                         Err(err) => {
-                            error!("Failed to extract data from channel '{channel_id}': {err}");
+                            error!("Failed to extract data from channel '{channel_name}': {err}");
                             Ok::<_, Error>(None)
                         }
                     }
@@ -99,10 +119,12 @@ async fn get_feed(
             })
             .await?
     }
-    .ok_or(Error::Proxy(channel_id))?;
+    .ok_or(Error::Proxy(channel))?;
+
+    let feed = filter::filter_feed(feed_info, filter)?;
 
     Ok(Response::builder()
-        .header("Content-Type", "text/xml")
+        .header("Content-Type", "application/atom+xml")
         .body(boxed(feed))
         .unwrap())
 }

@@ -1,128 +1,162 @@
-use crate::extractor::VideoInfo;
+use crate::{
+    error::Error,
+    extractor::VideoInfo,
+    media::Media,
+    proxy::FeedInfo,
+    range::{range_format_opt, RangeExt},
+};
 use atom_syndication::Entry;
 use serde::Deserialize;
-use std::{fmt::Display, ops::Range};
+use std::ops::Range;
+use tracing::debug;
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Filter {
     #[serde(alias = "c")]
     pub count: Option<usize>,
-    #[serde(alias = "l", with = "range_format_opt", default)]
+    #[serde(alias = "d", with = "range_format_opt", default)]
     pub duration: Option<Range<u64>>,
     #[serde(alias = "v", with = "range_format_opt", default)]
     pub views: Option<Range<u64>>,
-}
-
-pub trait RangeExt<T> {
-    fn to_string(&self) -> String;
-}
-
-impl<T: Display> RangeExt<T> for Range<T> {
-    fn to_string(&self) -> String {
-        format!("{}-{}", self.start, self.end)
-    }
-}
-
-pub trait RangeNum {
-    fn start() -> Self;
-    fn end() -> Self;
-}
-
-impl RangeNum for u64 {
-    fn start() -> Self {
-        Self::MIN
-    }
-    fn end() -> Self {
-        Self::MAX
-    }
+    #[serde(alias = "l", with = "range_format_opt", default)]
+    pub likes: Option<Range<u64>>,
 }
 
 impl Filter {
-    pub fn filter_entry(&self, _e: &Entry, i: &VideoInfo) -> bool {
-        // TODO: Add filters back
+    pub fn filter(&self, i: &VideoInfo, m: &Media) -> bool {
         if let Some(duration_range) = &self.duration {
-            if !duration_range.contains(&i.length.as_secs()) {
+            if !duration_range.contains(&i.duration.as_secs()) {
                 return false;
             }
         }
         if let Some(views_range) = &self.views {
-            if !views_range.contains(&i.views) {
+            if !views_range.contains(&m.views) {
                 return false;
+            }
+        }
+        if let Some(likes_range) = &self.likes {
+            if let Some(likes) = m.likes {
+                if !likes_range.contains(&likes) {
+                    return false;
+                }
             }
         }
         true
     }
 
     pub fn id(&self) -> String {
-        let mut str = String::new();
-        if let Some(count) = self.count {
-            str.push('c');
-            str.push_str(&count.to_string());
-        }
-        if let Some(duration) = &self.duration {
-            str.push('d');
-            str.push_str(&duration.to_string());
-        }
-        if let Some(views) = &self.views {
-            str.push('v');
-            str.push_str(&views.to_string());
-        }
-        str
-    }
-}
-
-mod range_format_opt {
-    use super::{range_format, RangeNum};
-    use serde::{de::Error, Deserializer};
-    use std::{fmt::Display, ops::Range, str::FromStr};
-
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<Range<T>>, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: FromStr + RangeNum,
-        <T as FromStr>::Err: Display,
-    {
-        match range_format::deserialize(deserializer) {
-            Ok(dur) => Ok(Some(dur)),
-            Err(err) => Err(Error::custom(err)),
+        format! {
+            "{}{}{}{}",
+            self.count.map(|c| format!("c{c}")).unwrap_or_default(),
+            self.duration.as_ref().map(|d| format!("d{}", d.display())).unwrap_or_default(),
+            self.likes.as_ref().map(|l| format!("l{}", l.display())).unwrap_or_default(),
+            self.views.as_ref().map(|v| format!("v{}", v.display())).unwrap_or_default()
         }
     }
 }
 
-mod range_format {
-    use super::RangeNum;
-    use serde::{de::Error, Deserialize, Deserializer};
-    use std::{fmt::Display, ops::Range, str::FromStr};
+pub fn filter_feed(chached_feed: FeedInfo, filter: Filter) -> Result<String, Error> {
+    let mut feed = chached_feed.feed;
+    let extraction = chached_feed.extraction;
+    let orig_count = feed.entries.len();
+    feed.entries = feed
+        .entries
+        .into_iter()
+        .filter_map(|mut e| {
+            if let Some(video_info) = extraction
+                .videos
+                .iter()
+                .find(|v| Some(v.id.clone()) == e.extensions["yt"]["videoId"][0].value)
+            {
+                let media = Media::from(&e);
+                if filter.filter(video_info, &media) {
+                    update_description(&mut e, video_info, &media);
+                    return Some(e);
+                }
+            }
+            None
+        })
+        .take(filter.count.unwrap_or(usize::MAX))
+        .collect();
 
-    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Range<T>, D::Error>
-    where
-        D: Deserializer<'de>,
-        T: FromStr + RangeNum,
-        <T as FromStr>::Err: Display,
-    {
-        let str = String::deserialize(deserializer)?;
-        let center = str
-            .find('-')
-            .ok_or_else(|| Error::custom("missing '-' split on range"))?;
-        let start_slice = &str[..center];
-        let end_slice = &str[center + 1..];
-        if start_slice.is_empty() && end_slice.is_empty() {
-            return Err(Error::custom("specify at least a start or end range"));
-        }
-        let start = if start_slice.is_empty() {
-            T::start()
-        } else {
-            start_slice
-                .parse::<T>()
-                .map_err(|e| Error::custom(format!("failed to parse start: {}", e)))?
-        };
-        let end = if end_slice.is_empty() {
-            T::end()
-        } else {
-            end_slice
-                .parse::<T>()
-                .map_err(|e| Error::custom(format!("failed to parse end: {}", e)))?
-        };
-        Ok(Range { start, end })
-    }
+    feed.set_id(format!("{}#{}", extraction.channel.id, filter.id()));
+    debug!(
+        "Filtered to {} videos (from {})",
+        feed.entries.len(),
+        orig_count
+    );
+    Ok(feed.to_string())
+}
+
+// Adds video information to description and tries to remove ads/sponsors based on keywords
+fn update_description(e: &mut Entry, i: &VideoInfo, m: &Media) {
+    let description = &mut e
+        .extensions
+        .get_mut("media")
+        .unwrap()
+        .get_mut("group")
+        .unwrap()
+        .get_mut(0)
+        .unwrap()
+        .children
+        .get_mut("description")
+        .unwrap()
+        .get_mut(0)
+        .unwrap();
+    let text = remove_ads(&m.description);
+    let likes_text = m
+        .likes
+        .map(|l| format!(", 👍 {l} likes"))
+        .unwrap_or_default();
+    let info_text = format!("👀 {} views{}, ⏲️  {:?}", m.views, likes_text, i.duration);
+    description.value = Some(info_text + "\n" + &text);
+}
+
+const AD_KEYWORDS: &[&str] = &[
+    " affiliate ",
+    " affordable ",
+    " check out ",
+    " coupon code ",
+    " discount ",
+    " download ",
+    " free for ",
+    " limited offer ",
+    " limited time ",
+    " partnership ",
+    " promo ",
+    " promotion ",
+    " purchase ",
+    " save ",
+    " sign up ",
+    " sponsor ",
+    " sponsored by ",
+    " sponsoring ",
+    " try out ",
+    " upgrade at ",
+    " upgrade to ",
+    " use code ",
+    " use the code ",
+    " with code ",
+    "% off ",
+];
+
+fn remove_ads(text: &str) -> String {
+    text.lines()
+        .filter(|line| {
+            let normalized = " ".to_string()
+                + &line
+                    .trim()
+                    .to_lowercase()
+                    .replace(|c: char| !c.is_ascii(), "")
+                + " ";
+            for kw in AD_KEYWORDS {
+                if normalized.contains(kw) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
