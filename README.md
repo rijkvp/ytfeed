@@ -5,19 +5,21 @@ YouTube Atom feeds, without shorts and filtering.
 ## Usage
 
 When running locally at `0.0.0.0:8000`, feeds are accessible from the `http://0.0.0.0:80000/[channel]` endpoint.
-Channels are specified either by a channel ID used in regular YouTube feeds or by a channel name starting with an @ in the new YouTube channel URLs.
+Channels can be specified either by a channel handle (starting with an '@') or by a channel id (used in regular YouTube feeds).
 
 ### Filters
 
-Filters can be applied to the feeds using the following query parameters.
+Filters can be applied to the feeds using the following query parameters:
 
 Long | Short | Description 
 --- | --- | ---
-`count` | `c` | Maximum count of items (after the filter has been applied).
-`length` | `l` | Video length range in seconds
-`views` | `v` | Video view count range
+`count` | `c` | Maximum video count (number)
+`duration` | `d` | Video duration (range)
+`views` | `v` | Number of views (range)
+`likes` | `l` | Number of likes (range)
 
-Ranges must be specified as `a-b` where `a` is the minimum and `b` is the maximum. The minimum or maximum may be omitted (see examples below).
+Ranges must be specified as `a-b` where `a` is the minimum and `b` is the maximum. 
+Either the minimum or maximum may be omitted (see examples below).
 
 ### Examples
 
