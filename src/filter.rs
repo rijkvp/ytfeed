@@ -117,7 +117,7 @@ fn update_description(e: &mut Entry, i: &VideoInfo, m: &Media) {
         likes_text,
         format_duration(&i.duration)
     );
-    description.value = Some(info_text + "\n" + &text);
+    description.value = Some(info_text + "\n\n" + &text);
 }
 
 fn format_duration(d: &Duration) -> String {
