@@ -73,11 +73,21 @@ pub async fn extract_data(channel_name: &str, client: &Client) -> Result<Extract
                         let id = video_renderer["videoId"].as_str().unwrap().to_string();
                         let length_text =
                             video_renderer["lengthText"]["simpleText"].as_str().unwrap();
-                        let mut parts = length_text.split(':');
-                        let minutes: u64 = parts.next().unwrap().parse().unwrap();
-                        let seconds: u64 = parts.next().unwrap().parse().unwrap();
-                        let duration = Duration::from_secs(minutes * 60 + seconds);
-
+                        let parts: Vec<&str> = length_text.split(':').collect();
+                        let duration = if parts.len() == 3 {
+                            let hours: u64 = parts[0].parse().unwrap();
+                            let minutes: u64 = parts[1].parse().unwrap();
+                            let seconds: u64 = parts[2].parse().unwrap();
+                            Duration::from_secs(hours * 3600 + minutes * 60 + seconds)
+                        } else if parts.len() == 2 {
+                            let minutes: u64 = parts[0].parse().unwrap();
+                            let seconds: u64 = parts[1].parse().unwrap();
+                            Duration::from_secs(minutes * 60 + seconds)
+                        } else {
+                            return Err(Error::Scrape(
+                                "Invalid number of parts in length text".to_string(),
+                            ));
+                        };
                         let video = VideoInfo { id, duration };
                         videos.push(video);
                     }

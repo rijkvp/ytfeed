@@ -6,8 +6,9 @@ use crate::{
     range::{range_format_opt, RangeExt},
 };
 use atom_syndication::Entry;
+use num_format::{Locale, ToFormattedString};
 use serde::Deserialize;
-use std::ops::Range;
+use std::{ops::Range, time::Duration};
 use tracing::debug;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,13 +104,32 @@ fn update_description(e: &mut Entry, i: &VideoInfo, m: &Media) {
         .unwrap()
         .get_mut(0)
         .unwrap();
+    dbg!(&m.description);
     let text = remove_ads(&m.description);
+    dbg!(text.clone());
     let likes_text = m
         .likes
-        .map(|l| format!(", 👍 {l} likes"))
+        .map(|l| format!(", 👍 {} likes", l.to_formatted_string(&Locale::en)))
         .unwrap_or_default();
-    let info_text = format!("👀 {} views{}, ⏲️  {:?}", m.views, likes_text, i.duration);
+    let info_text = format!(
+        "👀 {} views{}, ⏲️  {}",
+        m.views.to_formatted_string(&Locale::en),
+        likes_text,
+        format_duration(&i.duration)
+    );
     description.value = Some(info_text + "\n" + &text);
+}
+
+fn format_duration(d: &Duration) -> String {
+    let total_secs = d.as_secs();
+    let h = total_secs / 3600;
+    let m = (total_secs / 60) % 60;
+    let s = total_secs % 60;
+    if h > 0 {
+        format!("{}:{:02}:{:02}", h, m, s)
+    } else {
+        format!("{:02}:{:02}", m, s)
+    }
 }
 
 const AD_KEYWORDS: &[&str] = &[
@@ -156,6 +176,7 @@ fn remove_ads(text: &str) -> String {
             }
             true
         })
+        .map(|l| l.to_string() + "\n")
         .collect::<String>()
         .trim()
         .to_string()
