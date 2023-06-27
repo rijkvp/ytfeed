@@ -105,6 +105,10 @@ async fn get_feed(
                         Ok(feed_info) => {
                             if channel_name.starts_with('@') {
                                 // Cache the channel id associated with the handle
+                                info!(
+                                    "Cached channel id '{}' for handle '{}'",
+                                    feed_info.extraction.channel.id, channel_name
+                                );
                                 handle_cache
                                     .insert(channel_name, feed_info.extraction.channel.id.clone());
                             }

@@ -104,9 +104,7 @@ fn update_description(e: &mut Entry, i: &VideoInfo, m: &Media) {
         .unwrap()
         .get_mut(0)
         .unwrap();
-    dbg!(&m.description);
     let text = remove_ads(&m.description);
-    dbg!(text.clone());
     let likes_text = m
         .likes
         .map(|l| format!(", 👍 {} likes", l.to_formatted_string(&Locale::en)))
