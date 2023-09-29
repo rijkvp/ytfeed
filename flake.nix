@@ -2,23 +2,45 @@
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
-  outputs = { self, nixpkgs, flake-utils, ... }:
+  outputs = { self, nixpkgs, flake-utils, crane, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        inherit (nixpkgs) lib;
-        pkgs = nixpkgs.legacyPackages.${system};
-      in
-      with pkgs;
-      {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "ytfeed";
-          inherit ((lib.importTOML (self + "/Cargo.toml")).package) version;
-          src = self;
-          cargoLock.lockFile = self + "/Cargo.lock";
+        pkgs = import nixpkgs { inherit system; };
+        craneLib = crane.lib.${system};
+        crate = with pkgs; craneLib.buildPackage {
+          src = craneLib.cleanCargoSource (craneLib.path ./.);
+          buildInputs = lib.optionals stdenv.isDarwin [
+            pkgs.libiconv
+          ];
         };
-        devShells.default = mkShell {
-          nativeBuildInputs = with pkgs; [ rustc cargo clippy cargo-outdated ];
+        dockerImage = pkgs.dockerTools.buildImage {
+          name = crate.meta.name;
+          tag = "latest";
+          copyToRoot = [ crate ];
+          config = {
+            Cmd = [ "${crate}/bin/${crate.meta.name}" ];
+          };
+        };
+      in
+      {
+        checks = { inherit crate; };
+        packages = {
+          inherit crate dockerImage;
+          default = crate;
+        };
+        apps.default = flake-utils.lib.mkApp {
+          drv = crate;
+        };
+        devShells.default = craneLib.devShell {
+          checks = self.checks.${system};
+          packages = [
+            pkgs.cargo-outdated
+          ];
         };
       }
     );
