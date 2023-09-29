@@ -19,11 +19,11 @@
           ];
         };
         dockerImage = pkgs.dockerTools.buildImage {
-          name = crate.meta.name;
+          name = crate.pname;
           tag = "latest";
           copyToRoot = [ crate ];
           config = {
-            Cmd = [ "${crate}/bin/${crate.meta.name}" ];
+            Cmd = [ "${crate}/bin/${crate.pname}" ];
           };
         };
       in
