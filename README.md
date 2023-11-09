@@ -1,15 +1,29 @@
 # ytfeed
 
-YouTube Atom feeds, without shorts and filtering.
+`ytfeed` is a feed server that provides better RSS/Atom feeds for YouTube.
+It works by providing a proxy around the official feeds and obtaining additional information by scraping the site.
+A simple URL interface is provided, allowing access to feeds by channel handle and optional filtering.
+
+## Features
+
+- Block shorts from bloating your feeds
+- Filter by video statistics
+- Specify channels more easily using channel handles
+- Hide sponsor messages from video descriptions
+- View video stats right in your feed reader
+
+## Installation
+
+- With [Nix](https://nixos.org/) Flakes: `nix profile install github:rijkvp/ytfeed`. 
+- Without Nix: `cargo build --release`, the resulting binary will be in `./target/release/ytfeed`.
 
 ## Usage
 
-When running locally at `0.0.0.0:8000`, feeds are accessible from the `http://0.0.0.0:80000/[channel]` endpoint.
-Channels can be specified either by a channel handle (starting with an '@') or by a channel id (used in regular YouTube feeds).
+Feeds can be accessed by providing a channel in the URL path. Channels can be specified either by a channel handle (starting with an '@') or by a channel ID used before handles.
 
 ### Filters
 
-Filters can be applied to the feeds using the following query parameters:
+Filters can be applied by specifying the following query parameters:
 
 Long | Short | Description 
 --- | --- | ---
@@ -20,29 +34,31 @@ Long | Short | Description
 
 Ranges must be specified as `a-b` where `a` is the minimum and `b` is the maximum. 
 Either the minimum or maximum may be omitted (see examples below).
+Note that YouTube shorts are filtered out by default, you don't have to explicitly filter for them.
 
-### Examples
+## Examples
 
-Filter out videos shorter than 10 minutes seconds:
+Replace `http://example.com/` by the location your instance is running.
+
+A feed from @MyFavouriteChannel, but now better:
 ```
-http:://0.0.0.0:8000/@MyChannelName?d=600-
-```
-Filter the 8 videos with over 100,000 views and 10,00 likes:
-```
-http:://0.0.0.0:8000/UCabcdefghijklmnopqrstuv?c=8&views=100000-&likes=10000
+http://example.com/@MyFavouriteChannel
 ```
 
-## Running
-
-The server can be configured using the command line parameters:
+Filter on videos for channel `@ChannelHandle` longer than 10 minutes (600 seconds):
 ```
-YouTube feed proxy
+http://example.com/@ChannelHandle?d=600-
+```
 
-Usage: ytfeed [OPTIONS]
+Filter videos from channel ID `UCabcdefghijklmnopqrstuv` on the last 8 videos with over 100,000 views and 10,000 likes:
+```
+http://example.com/UCabcdefghijklmnopqrstuv?c=8&views=100000-&likes=10000-
+```
 
-Options:
-  -b, --bind <BIND_ADDRESS>    IP bind address [default: 0.0.0.0:8000]
-  -c, --cache <CACHE_TIMEOUT>  How long to keep videos cached (in seconds) [default: 300]
-  -h, --help                   Print help
-  -V, --version                Print version
+## Configuration
+
+See using `ytfeed --help`
+```
+-s, --socket <SOCKET>          Socket to bind the server to [default: 0.0.0.0:8000]
+-t, --timeout <CACHE_TIMEOUT>  Time to keep feeds in server cache before refreshing (in seconds) [default: 300]
 ```

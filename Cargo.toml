@@ -1,9 +1,9 @@
 [package]
 name = "ytfeed"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 authors = ["Rijk van Putten <rijk@rijkvp.nl>"]
-description = "YouTube feed proxy"
+description = "Better RSS/Atom feeds for YouTube"
 readme = "README.md"
 homepage = "https://github.com/rijkvp/ytfeed"
 license = "AGPL-3.0"
@@ -17,7 +17,7 @@ thiserror = "1.0"
 serde = { version = "1.0", features = [ "derive" ] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-scraper = "0.17"
+scraper = "0.18"
 reqwest = { version = "0.11", default-features = false, features = [ "rustls-tls", "brotli" ] }
 parking_lot = "0.12"
 clap = { version = "4.1", features = ["derive"] }

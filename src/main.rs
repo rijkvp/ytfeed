@@ -30,11 +30,11 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 struct Config {
-    /// IP bind address
-    #[arg(short = 'b', long = "bind", default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8000))]
-    bind_address: SocketAddr,
-    /// How long to keep feeds cached (in seconds)
-    #[arg(short = 'c', long = "cache", default_value_t = 300)]
+    /// Socket to bind the server to
+    #[arg(short = 's', long = "socket", default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8000))]
+    socket: SocketAddr,
+    /// Time to keep feeds in server cache before refreshing (in seconds)
+    #[arg(short = 't', long = "timeout", default_value_t = 300)]
     cache_timeout: u64,
 }
 
@@ -50,8 +50,6 @@ async fn main() {
                 .from_env_lossy(),
         )
         .init();
-
-    let bind_address = config.bind_address;
 
     let mut headers = HeaderMap::new();
     headers.insert("accept-language", "en".parse().unwrap());
@@ -70,9 +68,9 @@ async fn main() {
             Duration::from_secs(config.cache_timeout),
         ))));
 
-    info!("Starting server at http://{}", bind_address);
+    info!("Starting server at http://{}", config.socket);
 
-    axum::Server::bind(&bind_address)
+    axum::Server::bind(&config.socket)
         .serve(app.into_make_service())
         .await
         .unwrap();
@@ -82,7 +80,9 @@ async fn get_feed(
     Path(channel): Path<String>,
     Query(filter): Query<Filter>,
     Extension(http_client): Extension<Client>,
+    // Cache for channel handles
     Extension(mut handle_cache): Extension<HashMap<String, String>>,
+    // Cache for channel feeds
     Extension(feed_cache): Extension<Cache<String, Option<FeedInfo>>>,
 ) -> Result<Response, Error> {
     info!("Get feed '{}'", channel);
