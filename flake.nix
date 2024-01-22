@@ -14,23 +14,11 @@
         craneLib = crane.lib.${system};
         crate = with pkgs; craneLib.buildPackage {
           src = craneLib.cleanCargoSource (craneLib.path ./.);
-          buildInputs = lib.optionals stdenv.isDarwin [
-            pkgs.libiconv
-          ];
-        };
-        dockerImage = pkgs.dockerTools.buildImage {
-          name = crate.pname;
-          tag = "latest";
-          copyToRoot = [ crate ];
-          config = {
-            Cmd = [ "${crate}/bin/${crate.pname}" ];
-          };
         };
       in
       {
         checks = { inherit crate; };
         packages = {
-          inherit crate dockerImage;
           default = crate;
         };
         apps.default = flake-utils.lib.mkApp {
@@ -38,10 +26,54 @@
         };
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
-          packages = [
-            pkgs.cargo-outdated
+          packages = with pkgs; [
+            cargo-outdated
           ];
         };
+
+        # NixOS module to run it as systemd service
+        nixosModules.ytfeed = { config, lib, pkgs, ... }:
+          let
+            cfg = config.services.ytfeed;
+          in
+          with lib;
+          {
+            options.services.ytfeed = {
+              enable = mkEnableOption "ytfeed";
+              user = mkOption {
+                default = "ytfeed";
+                type = types.str;
+                description = "User to run ytfeed as";
+              };
+              group = mkOption {
+                default = "ytfeed";
+                type = types.str;
+                description = "Group to run ytfeed as";
+              };
+            };
+            users.users.ytfeed = optionalAttrs (cfg.user == "ytfeed") {
+              isSystemUser = true;
+              group = cfg.group;
+            };
+            users.groups.ytfeed = optionalAttrs (cfg.group == "ytfeed") { };
+
+            config = mkIf cfg.enable {
+              systemd.services.ytfeed = {
+                description = "ytfeed";
+                wantedBy = [ "multi-user.target" ];
+                after = [ "network.target" ];
+                serviceConfig = {
+                  ExecStart = "${crate}/bin/ytfeed";
+                  User = cfg.user;
+                  Group = cfg.group;
+                  Environment = {
+                    "RUST_LOG" = "info";
+                    "RUST_BACKTRACE" = "1";
+                  };
+                };
+              };
+            };
+          };
       }
     );
 }

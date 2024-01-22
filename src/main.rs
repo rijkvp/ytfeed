@@ -8,9 +8,8 @@ mod range;
 
 use crate::{cache::Cache, error::Error};
 use axum::{
-    body::boxed,
+    body::Body,
     extract::{Path, Query},
-    http::HeaderMap,
     response::Response,
     routing::get,
     Extension, Router,
@@ -18,23 +17,24 @@ use axum::{
 use clap::Parser;
 use filter::Filter;
 use proxy::FeedInfo;
-use reqwest::Client;
+use reqwest::{header::HeaderMap, Client};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
+use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about)]
 struct Config {
-    /// Socket to bind the server to
+    /// Socket address
     #[arg(short = 's', long = "socket", default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 8000))]
-    socket: SocketAddr,
-    /// Time to keep feeds in server cache before refreshing (in seconds)
-    #[arg(short = 't', long = "timeout", default_value_t = 300)]
+    socket_addres: SocketAddr,
+    /// How long to keep feeds cached (in seconds)
+    #[arg(short = 'c', long = "cache", default_value_t = 300)]
     cache_timeout: u64,
 }
 
@@ -50,6 +50,8 @@ async fn main() {
                 .from_env_lossy(),
         )
         .init();
+
+    let socket_address = config.socket_addres;
 
     let mut headers = HeaderMap::new();
     headers.insert("accept-language", "en".parse().unwrap());
@@ -68,12 +70,10 @@ async fn main() {
             Duration::from_secs(config.cache_timeout),
         ))));
 
-    info!("Starting server at http://{}", config.socket);
+    info!("Starting server at http://{}", socket_address);
 
-    axum::Server::bind(&config.socket)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let listener = TcpListener::bind(socket_address).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
 
 async fn get_feed(
@@ -129,6 +129,7 @@ async fn get_feed(
 
     Ok(Response::builder()
         .header("Content-Type", "application/atom+xml")
-        .body(boxed(feed))
-        .unwrap())
+        .body(Body::from(feed))
+        .unwrap()
+        .into())
 }

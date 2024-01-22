@@ -1,8 +1,7 @@
 use crate::cache::CacheError;
 use axum::{
-    body::boxed,
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response}, body::Body,
 };
 use thiserror::Error;
 use tracing::error;
@@ -40,10 +39,10 @@ impl IntoResponse for Error {
             error!("{msg}");
             Response::builder()
                 .status(status)
-                .body(boxed(String::with_capacity(0)))
+                .body(Body::from(String::with_capacity(0)))
                 .unwrap()
         } else {
-            Response::builder().status(status).body(boxed(msg)).unwrap()
+            Response::builder().status(status).body(Body::from(msg)).unwrap()
         }
     }
 }

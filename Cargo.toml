@@ -10,7 +10,7 @@ license = "AGPL-3.0"
 
 [dependencies]
 atom_syndication = "0.12"
-axum = { version = "0.6", features = ["http2"] }
+axum = { version = "0.7", features = ["http2"] }
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 thiserror = "1.0"
