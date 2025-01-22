@@ -10,6 +10,7 @@ use crate::{cache::Cache, error::Error};
 use axum::{
     body::Body,
     extract::{Path, Query},
+    http::Request,
     response::Response,
     routing::get,
     Extension, Router,
@@ -24,7 +25,7 @@ use std::{
     time::Duration,
 };
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[derive(Parser, Debug, Clone)]
@@ -62,18 +63,24 @@ async fn main() {
         .build()
         .unwrap();
 
-    let app = Router::new()
-        .route("/{channel_id}", get(get_feed))
+    let trace_layer = TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
+        let uri = request.uri().to_string();
+        tracing::info_span!("http_request", method = ?request.method(), uri)
+    });
+
+    let router = Router::new()
+        .route("/{channel}", get(get_feed))
         .layer(Extension(client))
         .layer(Extension(HashMap::<String, String>::new()))
         .layer(Extension(Cache::<String, Option<FeedInfo>>::new(Some(
             Duration::from_secs(config.cache_timeout),
-        ))));
+        ))))
+        .layer(trace_layer);
 
-    info!("Starting server at http://{}", socket_address);
+    tracing::info!("starting server at http://{}", socket_address);
 
     let listener = TcpListener::bind(socket_address).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, router).await.unwrap();
 }
 
 async fn get_feed(
@@ -85,7 +92,7 @@ async fn get_feed(
     // Cache for channel feeds
     Extension(feed_cache): Extension<Cache<String, Option<FeedInfo>>>,
 ) -> Result<Response, Error> {
-    info!("Get feed '{}'", channel);
+    tracing::info!("get feed '{}'", channel);
 
     let channel_name = if channel.starts_with('@') {
         handle_cache.get(&channel).unwrap_or(&channel)
@@ -105,9 +112,10 @@ async fn get_feed(
                         Ok(feed_info) => {
                             if channel_name.starts_with('@') {
                                 // Cache the channel id associated with the handle
-                                info!(
-                                    "Cached channel id '{}' for handle '{}'",
-                                    feed_info.extraction.channel.id, channel_name
+                                tracing::debug!(
+                                    "cached channel id '{}' for handle '{}'",
+                                    feed_info.extraction.channel.id,
+                                    channel_name
                                 );
                                 handle_cache
                                     .insert(channel_name, feed_info.extraction.channel.id.clone());
@@ -115,7 +123,9 @@ async fn get_feed(
                             Ok::<_, Error>(Some(feed_info))
                         }
                         Err(err) => {
-                            error!("Failed to extract data from channel '{channel_name}': {err}");
+                            tracing::error!(
+                                "failed to extract data from channel '{channel_name}': {err}"
+                            );
                             Ok::<_, Error>(None)
                         }
                     }
@@ -130,6 +140,5 @@ async fn get_feed(
     Ok(Response::builder()
         .header("Content-Type", "application/atom+xml")
         .body(Body::from(feed))
-        .unwrap()
-        .into())
+        .unwrap())
 }

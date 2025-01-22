@@ -20,10 +20,10 @@ pub async fn proxy_feed(channel_name: &str, client: &Client) -> Result<FeedInfo,
         let feed = fetch_feed(&extraction.channel.id, client).await?;
         Ok(FeedInfo { feed, extraction })
     } else {
-        // Concurrently peform both tasks
-        let feed_task = fetch_feed(channel_name, client);
-        let extract_task = extractor::extract_data(channel_name, client);
-        let (feed, extraction) = join!(feed_task, extract_task);
+        // concurrently extract data and fetch feed
+        let extract_fut = extractor::extract_data(channel_name, client);
+        let feed_fut = fetch_feed(channel_name, client);
+        let (feed, extraction) = join!(feed_fut, extract_fut);
         Ok(FeedInfo {
             feed: feed?,
             extraction: extraction?,

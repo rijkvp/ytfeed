@@ -1,5 +1,4 @@
 use atom_syndication::Entry;
-use tracing::log::warn;
 
 /// The media namespace used in YouTube's Atom feeds
 pub struct Media {
@@ -11,7 +10,7 @@ pub struct Media {
 
 fn get_field(option: &Option<String>, field_name: &str) -> String {
     option.as_ref().map(|s| s.to_string()).unwrap_or_else(|| {
-        warn!("Failed to parse media field '{}'", field_name);
+        tracing::warn!("Failed to parse media field '{}'", field_name);
         format!("ytfeed: Failed to parse field '{}'", field_name)
     })
 }
@@ -27,7 +26,7 @@ impl From<&Entry> for Media {
         let views: u64 = community.children["statistics"][0].attrs["views"]
             .parse()
             .unwrap_or_else(|_| {
-                warn!("Failed to parse media field 'views'");
+                tracing::warn!("failed to parse media field 'views'");
                 0
             });
         let title = get_field(&group.children["title"][0].value, "title");

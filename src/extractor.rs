@@ -3,7 +3,6 @@ use reqwest::{Client, StatusCode};
 use scraper::{Html, Selector};
 use serde_json::Value;
 use std::time::Duration;
-use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct VideoInfo {
@@ -26,6 +25,7 @@ pub struct Extraction {
     pub videos: Vec<VideoInfo>,
 }
 
+/// Extracts channel data and video information by scraping the YouTube website
 pub async fn extract_data(channel_name: &str, client: &Client) -> Result<Extraction, Error> {
     let has_at = channel_name.starts_with('@');
     let url = if has_at {
@@ -93,7 +93,7 @@ pub async fn extract_data(channel_name: &str, client: &Client) -> Result<Extract
                     }
                 }
             }
-            debug!("Scraped {} videos from '{}'", videos.len(), channel.title);
+            tracing::debug!("scraped {} videos from '{}'", videos.len(), channel.title);
             return Ok(Extraction { channel, videos });
         }
     }

@@ -9,7 +9,6 @@ use atom_syndication::Entry;
 use num_format::{Locale, ToFormattedString};
 use serde::Deserialize;
 use std::{ops::Range, time::Duration};
-use tracing::debug;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Filter {
@@ -81,8 +80,8 @@ pub fn filter_feed(chached_feed: FeedInfo, filter: Filter) -> Result<String, Err
         .collect();
 
     feed.set_id(format!("{}#{}", extraction.channel.id, filter.id()));
-    debug!(
-        "Filtered to {} videos (from {})",
+    tracing::debug!(
+        "filtered to {} videos (from {})",
         feed.entries.len(),
         orig_count
     );
