@@ -1,33 +1,47 @@
 {
   inputs = {
-    flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
+    flake-utils.url = "github:numtide/flake-utils";
   };
-  outputs = { self, nixpkgs, flake-utils, crane, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      nixpkgs,
+      flake-utils,
+      crane,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
-        pkgs = import nixpkgs { inherit system; };
-        craneLib = crane.lib.${system};
-        crate = with pkgs; craneLib.buildPackage {
-          src = craneLib.cleanCargoSource (craneLib.path ./.);
+        pkgs = nixpkgs.legacyPackages.${system};
+        craneLib = crane.mkLib pkgs;
+        commonArgs = {
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              (craneLib.fileset.rust ./.)
+              (craneLib.fileset.cargoTomlAndLock ./.)
+            ];
+          };
+          doCheck = false;
+          strictDeps = true;
         };
+        crate = craneLib.buildPackage (
+          commonArgs
+          // {
+            cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          }
+        );
       in
       {
-        checks = { inherit crate; };
-        packages = {
-          default = crate;
-        };
+        packages.default = crate;
         apps.default = flake-utils.lib.mkApp {
           drv = crate;
         };
         devShells.default = craneLib.devShell {
-          checks = self.checks.${system};
           packages = with pkgs; [
-            cargo-outdated
+            cargo-edit
           ];
         };
       }

@@ -63,7 +63,7 @@ async fn main() {
         .unwrap();
 
     let app = Router::new()
-        .route("/:channel_id", get(get_feed))
+        .route("/{channel_id}", get(get_feed))
         .layer(Extension(client))
         .layer(Extension(HashMap::<String, String>::new()))
         .layer(Extension(Cache::<String, Option<FeedInfo>>::new(Some(
