@@ -1,23 +1,13 @@
-use std::{fmt::Display, ops::Range};
-
-pub trait RangeExt<T> {
-    fn display(&self) -> String;
-}
-
-impl<T: Display> RangeExt<T> for Range<T> {
-    fn display(&self) -> String {
-        format!("{}-{}", self.start, self.end)
-    }
-}
-
 pub trait RangeNum {
     fn start() -> Self;
     fn end() -> Self;
 }
+
 impl RangeNum for u64 {
     fn start() -> Self {
         Self::MIN
     }
+
     fn end() -> Self {
         Self::MAX
     }
@@ -37,6 +27,17 @@ pub mod range_format_opt {
         match range_format::deserialize(deserializer) {
             Ok(dur) => Ok(Some(dur)),
             Err(err) => Err(Error::custom(err)),
+        }
+    }
+
+    pub fn serialize<S, T>(range: &Option<Range<T>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+        T: Display,
+    {
+        match range {
+            Some(range) => range_format::serialize(range, serializer),
+            None => serializer.serialize_none(),
         }
     }
 }
@@ -76,5 +77,13 @@ pub mod range_format {
                 .map_err(|e| Error::custom(format!("failed to parse end: {}", e)))?
         };
         Ok(Range { start, end })
+    }
+
+    pub fn serialize<S, T>(range: &Range<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+        T: Display,
+    {
+        serializer.serialize_str(&format!("{}-{}", range.start, range.end))
     }
 }

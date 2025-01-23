@@ -1,8 +1,8 @@
 mod cache;
 mod error;
 mod extractor;
+mod feed;
 mod filter;
-mod media;
 mod proxy;
 mod range;
 
@@ -16,8 +16,8 @@ use axum::{
     Extension, Router,
 };
 use clap::Parser;
+use feed::Feed;
 use filter::Filter;
-use proxy::FeedInfo;
 use reqwest::{header::HeaderMap, Client};
 use std::{
     collections::HashMap,
@@ -69,10 +69,10 @@ async fn main() {
     });
 
     let router = Router::new()
-        .route("/{channel}", get(get_feed))
+        .route("/@{handle}", get(get_feed))
         .layer(Extension(client))
         .layer(Extension(HashMap::<String, String>::new()))
-        .layer(Extension(Cache::<String, Option<FeedInfo>>::new(Some(
+        .layer(Extension(Cache::<String, Option<Feed>>::new(Some(
             Duration::from_secs(config.cache_timeout),
         ))))
         .layer(trace_layer);
@@ -84,48 +84,22 @@ async fn main() {
 }
 
 async fn get_feed(
-    Path(channel): Path<String>,
+    Path(handle): Path<String>,
     Query(filter): Query<Filter>,
     Extension(http_client): Extension<Client>,
-    // Cache for channel handles
-    Extension(mut handle_cache): Extension<HashMap<String, String>>,
-    // Cache for channel feeds
-    Extension(feed_cache): Extension<Cache<String, Option<FeedInfo>>>,
+    Extension(feed_cache): Extension<Cache<String, Option<Feed>>>,
 ) -> Result<Response, Error> {
-    tracing::info!("get feed '{}'", channel);
+    tracing::info!("get feed '{}'", handle);
 
-    let channel_name = if channel.starts_with('@') {
-        handle_cache.get(&channel).unwrap_or(&channel)
-    } else {
-        &channel
-    };
-
-    let feed_info = {
-        let channel_name = channel_name.clone();
+    let feed = {
+        let handle = handle.clone();
         feed_cache
-            // TODO: Currently, the cache isn't shared between channel handles and channel ids
-            // Make it possible to update the cache with the returned key value
-            // (Note: this is an exceptional situation due to way the proxy works)
-            .get_cached(channel_name.clone(), || {
+            .get_cached(handle.clone(), || {
                 Box::pin(async move {
-                    match proxy::proxy_feed(&channel_name, &http_client).await {
-                        Ok(feed_info) => {
-                            if channel_name.starts_with('@') {
-                                // Cache the channel id associated with the handle
-                                tracing::debug!(
-                                    "cached channel id '{}' for handle '{}'",
-                                    feed_info.extraction.channel.id,
-                                    channel_name
-                                );
-                                handle_cache
-                                    .insert(channel_name, feed_info.extraction.channel.id.clone());
-                            }
-                            Ok::<_, Error>(Some(feed_info))
-                        }
+                    match proxy::proxy_feed(&handle, &http_client).await {
+                        Ok(feed) => Ok::<_, Error>(Some(feed)),
                         Err(err) => {
-                            tracing::error!(
-                                "failed to extract data from channel '{channel_name}': {err}"
-                            );
+                            tracing::error!("failed to get data from channel '{handle}': {err}");
                             Ok::<_, Error>(None)
                         }
                     }
@@ -133,12 +107,15 @@ async fn get_feed(
             })
             .await?
     }
-    .ok_or(Error::Proxy(channel))?;
+    .ok_or(Error::Proxy(handle))?;
 
-    let feed = filter::filter_feed(feed_info, filter)?;
+    let feed = filter.apply(feed)?;
+
+    let feed_str = feed.into_atom(&filter.hash()?).to_string();
 
     Ok(Response::builder()
-        .header("Content-Type", "application/atom+xml")
-        .body(Body::from(feed))
+        // officially the atom MIME type is application/atom+xml, but text/xml is more widely supported
+        .header("Content-Type", "text/xml")
+        .body(Body::from(feed_str))
         .unwrap())
 }

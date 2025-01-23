@@ -1,120 +1,79 @@
 use crate::{
     error::Error,
-    extractor::VideoInfo,
-    media::Media,
-    proxy::FeedInfo,
-    range::{range_format_opt, RangeExt},
+    feed::{Feed, Video},
+    range::range_format_opt,
 };
-use atom_syndication::Entry;
+use base64::prelude::*;
 use num_format::{Locale, ToFormattedString};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{ops::Range, time::Duration};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Filter {
-    #[serde(alias = "c")]
+    #[serde(rename = "c")]
     pub count: Option<usize>,
-    #[serde(alias = "d", with = "range_format_opt", default)]
+    #[serde(rename = "d", with = "range_format_opt", default)]
     pub duration: Option<Range<u64>>,
-    #[serde(alias = "v", with = "range_format_opt", default)]
+    #[serde(rename = "v", with = "range_format_opt", default)]
     pub views: Option<Range<u64>>,
-    #[serde(alias = "l", with = "range_format_opt", default)]
+    #[serde(rename = "l", with = "range_format_opt", default)]
     pub likes: Option<Range<u64>>,
 }
 
 impl Filter {
-    pub fn filter(&self, i: &VideoInfo, m: &Media) -> bool {
+    pub fn apply(&self, mut feed: Feed) -> Result<Feed, Error> {
+        let orig_count = feed.videos.len();
+        feed.videos.retain_mut(|v| self.filter_video(v));
+        if let Some(count) = self.count {
+            feed.videos.truncate(count);
+        }
+        if orig_count != feed.videos.len() {
+            tracing::debug!("filtered {} videos", orig_count - feed.videos.len());
+        }
+        Ok(feed)
+    }
+
+    fn filter_video(&self, video: &mut Video) -> bool {
         if let Some(duration_range) = &self.duration {
-            if !duration_range.contains(&i.duration.as_secs()) {
+            if !duration_range.contains(&video.duration.as_secs()) {
                 return false;
             }
         }
         if let Some(views_range) = &self.views {
-            if !views_range.contains(&m.views) {
+            if !views_range.contains(&video.views) {
                 return false;
             }
         }
         if let Some(likes_range) = &self.likes {
-            if let Some(likes) = m.likes {
+            if let Some(likes) = video.likes {
                 if !likes_range.contains(&likes) {
                     return false;
                 }
             }
         }
+        self.filter_description(video);
         true
     }
 
-    pub fn id(&self) -> String {
-        format! {
-            "{}{}{}{}",
-            self.count.map(|c| format!("c{c}")).unwrap_or_default(),
-            self.duration.as_ref().map(|d| format!("d{}", d.display())).unwrap_or_default(),
-            self.likes.as_ref().map(|l| format!("l{}", l.display())).unwrap_or_default(),
-            self.views.as_ref().map(|v| format!("v{}", v.display())).unwrap_or_default()
-        }
+    fn filter_description(&self, video: &mut Video) {
+        let text = remove_ads(&video.description);
+        let likes_text = video
+            .likes
+            .map(|l| format!(", 👍 {} likes", l.to_formatted_string(&Locale::en)))
+            .unwrap_or_default();
+        let info_text = format!(
+            "👀 {} views{}, ⏲️  {}",
+            video.views.to_formatted_string(&Locale::en),
+            likes_text,
+            format_duration(&video.duration)
+        );
+        video.description = info_text + "\n\n" + &text;
     }
-}
 
-pub fn filter_feed(chached_feed: FeedInfo, filter: Filter) -> Result<String, Error> {
-    let mut feed = chached_feed.feed;
-    let extraction = chached_feed.extraction;
-    let orig_count = feed.entries.len();
-    feed.entries = feed
-        .entries
-        .into_iter()
-        .filter_map(|mut e| {
-            if let Some(video_info) = extraction
-                .videos
-                .iter()
-                .find(|v| Some(v.id.clone()) == e.extensions["yt"]["videoId"][0].value)
-            {
-                let media = Media::from(&e);
-                if filter.filter(video_info, &media) {
-                    update_description(&mut e, video_info, &media);
-                    return Some(e);
-                }
-            }
-            None
-        })
-        .take(filter.count.unwrap_or(usize::MAX))
-        .collect();
-
-    feed.set_id(format!("{}#{}", extraction.channel.id, filter.id()));
-    tracing::debug!(
-        "filtered to {} videos (from {})",
-        feed.entries.len(),
-        orig_count
-    );
-    Ok(feed.to_string())
-}
-
-// Adds video information to description and tries to remove ads/sponsors based on keywords
-fn update_description(e: &mut Entry, i: &VideoInfo, m: &Media) {
-    let description = &mut e
-        .extensions
-        .get_mut("media")
-        .unwrap()
-        .get_mut("group")
-        .unwrap()
-        .get_mut(0)
-        .unwrap()
-        .children
-        .get_mut("description")
-        .unwrap()
-        .get_mut(0)
-        .unwrap();
-    let text = remove_ads(&m.description);
-    let likes_text = m
-        .likes
-        .map(|l| format!(", 👍 {} likes", l.to_formatted_string(&Locale::en)))
-        .unwrap_or_default();
-    let info_text = format!(
-        "👀 {} views{}, ⏲️  {}",
-        m.views.to_formatted_string(&Locale::en),
-        likes_text,
-        format_duration(&i.duration)
-    );
-    description.value = Some(info_text + "\n\n" + &text);
+    pub fn hash(&self) -> Result<String, Error> {
+        let json = serde_json::to_string(&self)?;
+        Ok(BASE64_URL_SAFE.encode(&json))
+    }
 }
 
 fn format_duration(d: &Duration) -> String {
@@ -130,13 +89,14 @@ fn format_duration(d: &Duration) -> String {
 }
 
 const AD_KEYWORDS: &[&str] = &[
-    " affiliate ",
+    " affiliate",
     " affordable ",
     " check out ",
     " coupon code ",
     " discount ",
     " download ",
     " free for ",
+    " for free",
     " limited offer ",
     " limited time ",
     " partnership ",
@@ -144,16 +104,18 @@ const AD_KEYWORDS: &[&str] = &[
     " promotion ",
     " purchase ",
     " save ",
-    " sign up ",
+    " sign up",
     " sponsor ",
-    " sponsored by ",
+    " sponsored by",
     " sponsoring ",
     " try out ",
     " upgrade at ",
     " upgrade to ",
-    " use code ",
-    " use the code ",
-    " with code ",
+    " use code",
+    " use the code",
+    " with code",
+    " buy a ",
+    " buy an ",
     "% off ",
 ];
 

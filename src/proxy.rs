@@ -1,43 +1,61 @@
 use crate::{
     error::Error,
-    extractor::{self, Extraction},
+    extractor::{self},
+    feed::{Feed, Video},
 };
-use atom_syndication::Feed;
+use atom_syndication::Feed as AtomFeed;
 use bytes::Buf;
 use reqwest::Client;
-use tokio::join;
 
-#[derive(Clone)]
-pub struct FeedInfo {
-    pub feed: Feed,
-    pub extraction: Extraction,
-}
+/// Proxies a YouTube channel feed, filters out shorts from the RSS feed by extracting video
+/// information from the channel page
+pub async fn proxy_feed(handle: &str, client: &Client) -> Result<Feed, Error> {
+    // 1. extract channel data and video information from YouTube
+    let mut extraction = extractor::extract_data(handle, client).await?;
+    let extracted_videos_count = extraction.videos.len();
+    // 2. Use channel id to fetch feed from YouTube RSS server
+    let feed = fetch_feed(&extraction.channel.id, client).await?;
+    let feed_entries_count = feed.entries.len();
 
-pub async fn proxy_feed(channel_name: &str, client: &Client) -> Result<FeedInfo, Error> {
-    if channel_name.starts_with('@') {
-        // Peform extraction first to aquire channel id
-        let extraction = extractor::extract_data(channel_name, client).await?;
-        let feed = fetch_feed(&extraction.channel.id, client).await?;
-        Ok(FeedInfo { feed, extraction })
-    } else {
-        // concurrently extract data and fetch feed
-        let extract_fut = extractor::extract_data(channel_name, client);
-        let feed_fut = fetch_feed(channel_name, client);
-        let (feed, extraction) = join!(feed_fut, extract_fut);
-        Ok(FeedInfo {
-            feed: feed?,
-            extraction: extraction?,
+    // 3. Match & combine both data sources into a single feed
+    let videos: Vec<Video> = feed
+        .entries
+        .into_iter()
+        .filter_map(|e| {
+            if let Some(video_idx) = extraction
+                .videos
+                .iter()
+                .position(|v| Some(v.id.clone()) == e.extensions["yt"]["videoId"][0].value)
+            {
+                let video = extraction.videos.swap_remove(video_idx);
+                Some(Video::from_entry_and_info(e, video))
+            } else {
+                None
+            }
         })
-    }
+        .collect();
+
+    tracing::debug!(
+        "proxied {} Atom entries and {} extracted videos to {}",
+        feed_entries_count,
+        extracted_videos_count,
+        videos.len()
+    );
+
+    Ok(Feed {
+        channel: extraction.channel,
+        videos,
+    })
 }
 
 /// Get a feed from the YouTube RSS server
-async fn fetch_feed(channel_id: &str, client: &Client) -> Result<Feed, Error> {
+async fn fetch_feed(channel_id: &str, client: &Client) -> Result<AtomFeed, Error> {
     let feed_url = format!(
         "https://www.youtube.com/feeds/videos.xml?channel_id={}",
         channel_id
     );
+    tracing::debug!("fetching feed from {}", feed_url);
     let feed_bytes = client.get(&feed_url).send().await?.bytes().await?;
-    let feed = Feed::read_from(feed_bytes.reader())?;
+    let feed = AtomFeed::read_from(feed_bytes.reader())?;
     Ok(feed)
 }

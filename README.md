@@ -6,11 +6,11 @@ A simple URL interface is provided, allowing access to feeds by channel handle a
 
 ## Features
 
-- Block shorts from bloating your feeds
-- Filter by video statistics
+- Block YouTube shorts
+- Filter on video statistics
 - Specify channels more easily using channel handles
-- Hide sponsor messages from video descriptions
-- View video stats right in your feed reader
+- Hides sponsor messages from video descriptions
+- Shows video statistics in your feed reader
 
 ## Installation
 
@@ -25,12 +25,12 @@ Feeds can be accessed by providing a channel in the URL path. Channels can be sp
 
 Filters can be applied by specifying the following query parameters:
 
-Long | Short | Description 
---- | --- | ---
-`count` | `c` | Maximum video count (number)
-`duration` | `d` | Video duration (range)
-`views` | `v` | Number of views (range)
-`likes` | `l` | Number of likes (range)
+Parameter | Description 
+--- | ---
+`c` | Maximum video count (number)
+`d` | Video duration (range)
+`v` | Number of views (range)
+`l` | Number of likes (range)
 
 Ranges must be specified as `a-b` where `a` is the minimum and `b` is the maximum. 
 Either the minimum or maximum may be omitted (see examples below).

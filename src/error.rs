@@ -8,19 +8,19 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Failed HTTP request: {0}")]
+    #[error("failed HTTP request: {0}")]
     HttpRequest(#[from] reqwest::Error),
-    #[error("Scraping: {0}")]
+    #[error("scraping: {0}")]
     Scrape(String),
-    #[error("Cache: {0}")]
+    #[error("cache: {0}")]
     Cache(#[from] CacheError),
-    #[error("Channel '{0}' not found")]
+    #[error("channel '{0}' not found")]
     ChannelNotFound(String),
     #[error("Failed to proxy feed '{0}'")]
     Proxy(String),
     #[error("JSON parse: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("Feed parse: {0}")]
+    #[error("feed parse: {0}")]
     Feed(#[from] atom_syndication::Error),
 }
 
