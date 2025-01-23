@@ -7,6 +7,7 @@ A simple URL interface is provided, allowing access to feeds by channel handle a
 ## Features
 
 - Block YouTube shorts
+- [DeArrow](https://dearrow.ajay.app/)'d titles
 - Filter on video statistics
 - Specify channels more easily using channel handles
 - Hides sponsor messages from video descriptions

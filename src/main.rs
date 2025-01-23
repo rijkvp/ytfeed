@@ -1,4 +1,5 @@
 mod cache;
+mod dearrow;
 mod error;
 mod extractor;
 mod feed;
@@ -18,7 +19,7 @@ use axum::{
 use clap::Parser;
 use feed::Feed;
 use filter::Filter;
-use reqwest::{header::HeaderMap, Client};
+use reqwest::Client;
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -37,6 +38,13 @@ struct Config {
     /// How long to keep feeds cached (in seconds)
     #[arg(short = 'c', long = "cache", default_value_t = 300)]
     cache_timeout: u64,
+    /// Base URL used in the feed
+    #[arg(
+        short = 'b',
+        long = "base_url",
+        default_value = "http://localhost:8000/"
+    )]
+    base_url: String,
 }
 
 #[tokio::main]
@@ -54,12 +62,10 @@ async fn main() {
 
     let socket_address = config.socket_addres;
 
-    let mut headers = HeaderMap::new();
-    headers.insert("accept-language", "en".parse().unwrap());
     let client = Client::builder()
-        .brotli(true)
+        .brotli(true) // reduce bandwidth, youtube.com supports it
+        .gzip(true)
         .timeout(Duration::new(10, 0))
-        .default_headers(headers)
         .build()
         .unwrap();
 
@@ -75,6 +81,7 @@ async fn main() {
         .layer(Extension(Cache::<String, Option<Feed>>::new(Some(
             Duration::from_secs(config.cache_timeout),
         ))))
+        .layer(Extension(config.base_url))
         .layer(trace_layer);
 
     tracing::info!("starting server at http://{}", socket_address);
@@ -88,11 +95,13 @@ async fn get_feed(
     Query(filter): Query<Filter>,
     Extension(http_client): Extension<Client>,
     Extension(feed_cache): Extension<Cache<String, Option<Feed>>>,
+    Extension(base_url): Extension<String>,
 ) -> Result<Response, Error> {
     tracing::info!("get feed '{}'", handle);
 
     let feed = {
         let handle = handle.clone();
+        let http_client = http_client.clone();
         feed_cache
             .get_cached(handle.clone(), || {
                 Box::pin(async move {
@@ -107,11 +116,13 @@ async fn get_feed(
             })
             .await?
     }
-    .ok_or(Error::Proxy(handle))?;
+    .ok_or(Error::Proxy(handle.clone()))?;
 
-    let feed = filter.apply(feed)?;
+    let filtered_feed = filter.apply(feed)?;
 
-    let feed_str = feed.into_atom(&filter.hash()?).to_string();
+    let feed_str = filtered_feed
+        .into_atom(&base_url, &handle, &filter.query_string()?)
+        .to_string();
 
     Ok(Response::builder()
         // officially the atom MIME type is application/atom+xml, but text/xml is more widely supported

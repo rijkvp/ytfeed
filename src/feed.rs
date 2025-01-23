@@ -12,7 +12,13 @@ pub struct Feed {
 }
 
 impl Feed {
-    pub fn into_atom(self, filter_hash: &str) -> AtomFeed {
+    pub fn into_atom(self, base_url: &str, handle: &str, query_string: &str) -> AtomFeed {
+        let mut self_link = base_url.to_string() + "@" + handle;
+        if query_string.len() != 0 {
+            self_link.push('?');
+            self_link.push_str(query_string);
+        };
+
         FeedBuilder::default()
             .title(self.channel.title.clone())
             .updated(self.videos.iter().map(|v| v.updated).max().unwrap())
@@ -22,7 +28,8 @@ impl Feed {
                     .uri(Some(self.channel.url))
                     .build(),
             )
-            .id(format!("ytfeed:{}#{}", self.channel.id, filter_hash))
+            .id(self_link.clone())
+            .link(LinkBuilder::default().href(self_link).rel("self").build())
             .entries(
                 self.videos
                     .into_iter()
@@ -84,8 +91,8 @@ impl Video {
         let description = get_media_field(&group.children["description"][0].value, "description");
         Self {
             id: info.id,
-            published: entry.published.unwrap().into(),
-            updated: entry.updated.into(),
+            published: entry.published.unwrap(),
+            updated: entry.updated,
             title,
             description,
             duration: info.duration,

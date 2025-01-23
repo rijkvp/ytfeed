@@ -20,7 +20,11 @@ pub struct Extraction {
 pub async fn extract_data(handle: &str, client: &Client) -> Result<Extraction, Error> {
     let videos_url = format!("https://www.youtube.com/@{}/videos", handle);
     tracing::debug!("scraping channel data from '{}'", videos_url);
-    let response = client.get(&videos_url).send().await?;
+    let response = client
+        .get(&videos_url)
+        .header("Accept-Language", "en") // to get data in English locale formats
+        .send()
+        .await?;
     if response.status() == StatusCode::NOT_FOUND {
         return Err(Error::ChannelNotFound(handle.to_string()));
     }
@@ -35,9 +39,9 @@ pub async fn extract_data(handle: &str, client: &Client) -> Result<Extraction, E
         }
         let json = script
             .strip_prefix("var ytInitialData = ")
-            .ok_or_else(|| Error::Scrape(String::from("Failed to strip prefix")))?
+            .ok_or_else(|| Error::Scrape("failed to strip prefix"))?
             .strip_suffix(';')
-            .ok_or_else(|| Error::Scrape(String::from("Failed to strip suffix")))?;
+            .ok_or_else(|| Error::Scrape("failed to strip suffix"))?;
         let data: Value = serde_json::from_str(json)?;
         let meta_data = &data["metadata"]["channelMetadataRenderer"];
         let channel_id = meta_data["externalId"].as_str().unwrap().to_string();
@@ -65,9 +69,7 @@ pub async fn extract_data(handle: &str, client: &Client) -> Result<Extraction, E
                         let seconds: u64 = parts[1].parse().unwrap();
                         Duration::from_secs(minutes * 60 + seconds)
                     } else {
-                        return Err(Error::Scrape(
-                            "Invalid number of parts in length text".to_string(),
-                        ));
+                        return Err(Error::Scrape("invalid number of parts in length text"));
                     };
                     let video = VideoInfo { id, duration };
                     videos.push(video);

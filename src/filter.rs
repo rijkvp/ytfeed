@@ -3,7 +3,6 @@ use crate::{
     feed::{Feed, Video},
     range::range_format_opt,
 };
-use base64::prelude::*;
 use num_format::{Locale, ToFormattedString};
 use serde::{Deserialize, Serialize};
 use std::{ops::Range, time::Duration};
@@ -18,6 +17,8 @@ pub struct Filter {
     pub views: Option<Range<u64>>,
     #[serde(rename = "l", with = "range_format_opt", default)]
     pub likes: Option<Range<u64>>,
+    #[serde(rename = "lvr", default, skip_serializing_if = "std::ops::Not::not")]
+    pub like_view_ratio: bool,
 }
 
 impl Filter {
@@ -51,6 +52,12 @@ impl Filter {
                 }
             }
         }
+        if self.like_view_ratio {
+            if let Some(likes) = video.likes {
+                let lvr = likes as f64 / video.views as f64 * 100.0;
+                video.title = format!("{} [{:.1}]", video.title, lvr);
+            }
+        }
         self.filter_description(video);
         true
     }
@@ -70,9 +77,8 @@ impl Filter {
         video.description = info_text + "\n\n" + &text;
     }
 
-    pub fn hash(&self) -> Result<String, Error> {
-        let json = serde_json::to_string(&self)?;
-        Ok(BASE64_URL_SAFE.encode(&json))
+    pub fn query_string(&self) -> Result<String, Error> {
+        Ok(serde_html_form::to_string(self)?)
     }
 }
 
