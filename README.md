@@ -20,7 +20,7 @@ A simple URL interface is provided, allowing access to feeds by channel handle a
 
 ## Usage
 
-Feeds can be accessed by providing a channel in the URL path. Channels can be specified either by a channel handle (starting with an '@') or by a channel ID used before handles.
+Feeds can be accessed by providing a channel handle in the URL path (starting with '@').
 
 ### Filters
 
@@ -28,7 +28,6 @@ Filters can be applied by specifying the following query parameters:
 
 Parameter | Description 
 --- | ---
-`c` | Maximum video count (number)
 `d` | Video duration (range)
 `v` | Number of views (range)
 `l` | Number of likes (range)
@@ -39,7 +38,7 @@ Note that YouTube shorts are filtered out by default, you don't have to explicit
 
 ## Examples
 
-Replace `http://example.com/` by the location your instance is running.
+Replace `http://example.com/` with the URL of your instance.
 
 A feed from @MyFavouriteChannel, but now better:
 ```
@@ -51,9 +50,9 @@ Filter on videos for channel `@ChannelHandle` longer than 10 minutes (600 second
 http://example.com/@ChannelHandle?d=600-
 ```
 
-Filter videos from channel ID `UCabcdefghijklmnopqrstuv` on the last 8 videos with over 100,000 views and 10,000 likes:
+Filter videos from channel `@MyChannel` with over 100,000 views and 10,000 likes:
 ```
-http://example.com/UCabcdefghijklmnopqrstuv?c=8&views=100000-&likes=10000-
+http://example.com/@MyChannel?v=100000-&l=10000-
 ```
 
 ## Configuration

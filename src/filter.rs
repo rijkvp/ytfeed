@@ -9,8 +9,6 @@ use std::{ops::Range, time::Duration};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Filter {
-    #[serde(rename = "c")]
-    pub count: Option<usize>,
     #[serde(rename = "d", with = "range_format_opt", default)]
     pub duration: Option<Range<u64>>,
     #[serde(rename = "v", with = "range_format_opt", default)]
@@ -25,9 +23,6 @@ impl Filter {
     pub fn apply(&self, mut feed: Feed) -> Result<Feed, Error> {
         let orig_count = feed.videos.len();
         feed.videos.retain_mut(|v| self.filter_video(v));
-        if let Some(count) = self.count {
-            feed.videos.truncate(count);
-        }
         if orig_count != feed.videos.len() {
             tracing::debug!("filtered {} videos", orig_count - feed.videos.len());
         }
