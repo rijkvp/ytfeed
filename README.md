@@ -22,18 +22,17 @@ A simple URL interface is provided, allowing access to feeds by channel handle a
 
 Feeds can be accessed by providing a channel handle in the URL path (starting with '@').
 
-### Filters
+### Filter options
 
 Filters can be applied by specifying the following query parameters:
 
-Parameter | Description 
---- | ---
-`d` | Video duration (range)
-`v` | Number of views (range)
-`l` | Number of likes (range)
+Parameter | Description | Type
+--- | --- | --- 
+`d` | Mininum video duration (in seconds) | integer
+`v` | Number of views | integer
+`l` | Number of likes | integer
+`lvr` | Like-view ratio (like / views * 100) | boolean
 
-Ranges must be specified as `a-b` where `a` is the minimum and `b` is the maximum. 
-Either the minimum or maximum may be omitted (see examples below).
 Note that YouTube shorts are filtered out by default, you don't have to explicitly filter for them.
 
 ## Examples
@@ -47,12 +46,12 @@ http://example.com/@MyFavouriteChannel
 
 Filter on videos for channel `@ChannelHandle` longer than 10 minutes (600 seconds):
 ```
-http://example.com/@ChannelHandle?d=600-
+http://example.com/@ChannelHandle?d=600
 ```
 
 Filter videos from channel `@MyChannel` with over 100,000 views and 10,000 likes:
 ```
-http://example.com/@MyChannel?v=100000-&l=10000-
+http://example.com/@MyChannel?v=100000&l=10000
 ```
 
 ## Configuration

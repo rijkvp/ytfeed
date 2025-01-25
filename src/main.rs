@@ -5,7 +5,6 @@ mod extractor;
 mod feed;
 mod filter;
 mod proxy;
-mod range;
 
 use crate::{cache::Cache, error::Error};
 use axum::{

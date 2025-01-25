@@ -1,20 +1,19 @@
 use crate::{
     error::Error,
     feed::{Feed, Video},
-    range::range_format_opt,
 };
 use num_format::{Locale, ToFormattedString};
 use serde::{Deserialize, Serialize};
-use std::{ops::Range, time::Duration};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Filter {
-    #[serde(rename = "d", with = "range_format_opt", default)]
-    pub duration: Option<Range<u64>>,
-    #[serde(rename = "v", with = "range_format_opt", default)]
-    pub views: Option<Range<u64>>,
-    #[serde(rename = "l", with = "range_format_opt", default)]
-    pub likes: Option<Range<u64>>,
+    #[serde(rename = "d", default)]
+    pub duration: Option<u64>,
+    #[serde(rename = "v", default)]
+    pub views: Option<u64>,
+    #[serde(rename = "l", default)]
+    pub likes: Option<u64>,
     #[serde(rename = "lvr", default, skip_serializing_if = "std::ops::Not::not")]
     pub like_view_ratio: bool,
 }
@@ -30,21 +29,19 @@ impl Filter {
     }
 
     fn filter_video(&self, video: &mut Video) -> bool {
-        if let Some(duration_range) = &self.duration {
-            if !duration_range.contains(&video.duration.as_secs()) {
+        if let Some(min_duration) = &self.duration {
+            if video.duration.as_secs() < *min_duration {
                 return false;
             }
         }
-        if let Some(views_range) = &self.views {
-            if !views_range.contains(&video.views) {
+        if let Some(min_views) = &self.views {
+            if video.views < *min_views {
                 return false;
             }
         }
-        if let Some(likes_range) = &self.likes {
-            if let Some(likes) = video.likes {
-                if !likes_range.contains(&likes) {
-                    return false;
-                }
+        if let Some(min_likes) = &self.likes {
+            if video.likes.unwrap_or(0) < *min_likes {
+                return false;
             }
         }
         if self.like_view_ratio {
