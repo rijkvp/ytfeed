@@ -9,7 +9,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("failed HTTP request: {0}")]
-    HttpRequest(#[from] reqwest::Error),
+    HttpRequest(reqwest::Error),
     #[error("scraping: {0}")]
     Scrape(&'static str),
     #[error("cache: {0}")]
@@ -24,6 +24,30 @@ pub enum Error {
     UrlEncode(#[from] serde_html_form::ser::Error),
     #[error("feed parse: {0}")]
     Feed(#[from] atom_syndication::Error),
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(err: reqwest::Error) -> Self {
+        // Log detailed error information
+        if let Some(status) = err.status() {
+            tracing::error!(
+                status = %status,
+                url = err.url().map(|u| u.as_str()).unwrap_or("(none)"),
+                is_timeout = err.is_timeout(),
+                is_connect = err.is_connect(),
+                "HTTP request failed with status: {}", err
+            );
+        } else {
+            tracing::error!(
+                url = err.url().map(|u| u.as_str()).unwrap_or("(none)"),
+                is_timeout = err.is_timeout(),
+                is_connect = err.is_connect(),
+                "HTTP request failed: {}",
+                err
+            );
+        }
+        Error::HttpRequest(err)
+    }
 }
 
 impl IntoResponse for Error {

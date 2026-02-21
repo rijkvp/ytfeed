@@ -17,14 +17,14 @@ clap = { version = "4.5", features = ["derive"] }
 futures = "0.3"
 num-format = "0.4"
 parking_lot = "0.12"
-reqwest = { version = "0.12", default-features = false, features = [ "rustls-tls", "gzip", "brotli" ] }
-scraper = "0.24"
+reqwest = { version = "0.13", features = [ "gzip", "brotli", "zstd" ] }
+scraper = "0.25"
 serde = { version = "1.0", features = [ "derive" ] }
-serde_html_form = "0.2.8"
+serde_html_form = "0.4.0"
 serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
-tower-http = { version = "0.6.7", features = ["trace"] }
+tower-http = { version = "0.6.8", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

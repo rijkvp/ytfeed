@@ -1,5 +1,4 @@
 mod cache;
-mod dearrow;
 mod error;
 mod extractor;
 mod feed;
@@ -18,7 +17,7 @@ use axum::{
 use clap::Parser;
 use feed::Feed;
 use filter::Filter;
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -75,6 +74,7 @@ async fn main() {
 
     let router = Router::new()
         .route("/@{handle}", get(get_feed))
+        .route("/health", get(get_health))
         .layer(Extension(client))
         .layer(Extension(HashMap::<String, String>::new()))
         .layer(Extension(Cache::<String, Option<Feed>>::new(Some(
@@ -128,4 +128,8 @@ async fn get_feed(
         .header("Content-Type", "text/xml")
         .body(Body::from(feed_str))
         .unwrap())
+}
+
+async fn get_health() -> StatusCode {
+    StatusCode::OK
 }
