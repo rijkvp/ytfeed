@@ -2,7 +2,7 @@ use crate::extractor::VideoInfo;
 use atom_syndication::{
     Entry, EntryBuilder, Feed as AtomFeed, FeedBuilder, LinkBuilder, PersonBuilder, Text,
 };
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -21,7 +21,13 @@ impl Feed {
 
         FeedBuilder::default()
             .title(self.channel.title.clone())
-            .updated(self.videos.iter().map(|v| v.updated).max().unwrap())
+            .updated(
+                self.videos
+                    .iter()
+                    .map(|v| v.updated)
+                    .max()
+                    .unwrap_or_else(|| Utc::now().fixed_offset()),
+            )
             .author(
                 PersonBuilder::default()
                     .name(self.channel.title)

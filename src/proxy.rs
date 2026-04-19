@@ -18,6 +18,7 @@ pub async fn proxy_feed(handle: &str, client: &Client) -> Result<Feed, Error> {
     let feed_entries_count = feed.entries.len();
 
     // 3. Match & combine both data sources into a single feed
+    // This process automatically filters out shorts since the channel data extraction only contains videos
     let mut videos: Vec<Video> = feed
         .entries
         .into_iter()
