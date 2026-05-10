@@ -1,6 +1,6 @@
 [package]
 name = "ytfeed"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 authors = ["Rijk van Putten <rijk@rijkvp.nl>"]
 description = "Better RSS/Atom feeds for YouTube"

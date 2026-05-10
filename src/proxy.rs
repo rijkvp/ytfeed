@@ -59,7 +59,30 @@ async fn fetch_feed(channel_id: &str, client: &Client) -> Result<AtomFeed, Error
         channel_id
     );
     tracing::debug!("fetching feed from {}", feed_url);
-    let feed_bytes = client.get(&feed_url).send().await?.bytes().await?;
+    match try_fetch_feed(&feed_url, client).await {
+        Ok(feed) => Ok(feed),
+        Err(err) if is_transient(&err) => {
+            tracing::warn!("transient error fetching feed, retrying once: {err}");
+            try_fetch_feed(&feed_url, client).await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+async fn try_fetch_feed(feed_url: &str, client: &Client) -> Result<AtomFeed, Error> {
+    let response = client.get(feed_url).send().await?.error_for_status()?;
+    let feed_bytes = response.bytes().await?;
     let feed = AtomFeed::read_from(feed_bytes.reader())?;
     Ok(feed)
+}
+
+fn is_transient(err: &Error) -> bool {
+    match err {
+        Error::HttpRequest(e) => e
+            .status()
+            .map(|s| s.is_server_error() || s == reqwest::StatusCode::TOO_MANY_REQUESTS)
+            .unwrap_or(true),
+        Error::Feed(_) => true,
+        _ => false,
+    }
 }

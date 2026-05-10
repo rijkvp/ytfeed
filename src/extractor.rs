@@ -54,30 +54,69 @@ pub async fn extract_data(handle: &str, client: &Client) -> Result<Extraction, E
         let videos_parent = &video_tab["tabRenderer"]["content"]["richGridRenderer"]["contents"];
         let mut videos = Vec::new();
         for item in videos_parent.as_array().unwrap() {
-            if let Some(item_renderer) = item.get("richItemRenderer") {
-                if let Some(video_renderer) = item_renderer["content"].get("videoRenderer") {
-                    let id = video_renderer["videoId"].as_str().unwrap().to_string();
-                    let length_text = video_renderer["lengthText"]["simpleText"].as_str().unwrap();
-                    let parts: Vec<&str> = length_text.split(':').collect();
-                    let duration = if parts.len() == 3 {
-                        let hours: u64 = parts[0].parse().unwrap();
-                        let minutes: u64 = parts[1].parse().unwrap();
-                        let seconds: u64 = parts[2].parse().unwrap();
-                        Duration::from_secs(hours * 3600 + minutes * 60 + seconds)
-                    } else if parts.len() == 2 {
-                        let minutes: u64 = parts[0].parse().unwrap();
-                        let seconds: u64 = parts[1].parse().unwrap();
-                        Duration::from_secs(minutes * 60 + seconds)
-                    } else {
-                        return Err(Error::Scrape("invalid number of parts in length text"));
-                    };
-                    let video = VideoInfo { id, duration };
-                    videos.push(video);
+            let Some(item_renderer) = item.get("richItemRenderer") else {
+                continue;
+            };
+            let content = &item_renderer["content"];
+            let (id, length_text) = if let Some(lockup) = content.get("lockupViewModel") {
+                if lockup.get("contentType").and_then(Value::as_str)
+                    != Some("LOCKUP_CONTENT_TYPE_VIDEO")
+                {
+                    continue;
                 }
-            }
+                let id = lockup["contentId"]
+                    .as_str()
+                    .ok_or(Error::Scrape("missing contentId"))?
+                    .to_string();
+                let length_text = find_duration_badge(lockup)
+                    .ok_or(Error::Scrape("missing duration badge"))?;
+                (id, length_text.to_string())
+            } else if let Some(video_renderer) = content.get("videoRenderer") {
+                let id = video_renderer["videoId"]
+                    .as_str()
+                    .ok_or(Error::Scrape("missing videoId"))?
+                    .to_string();
+                let length_text = video_renderer["lengthText"]["simpleText"]
+                    .as_str()
+                    .ok_or(Error::Scrape("missing lengthText"))?
+                    .to_string();
+                (id, length_text)
+            } else {
+                continue;
+            };
+            let parts: Vec<&str> = length_text.split(':').collect();
+            let duration = if parts.len() == 3 {
+                let hours: u64 = parts[0].parse().unwrap();
+                let minutes: u64 = parts[1].parse().unwrap();
+                let seconds: u64 = parts[2].parse().unwrap();
+                Duration::from_secs(hours * 3600 + minutes * 60 + seconds)
+            } else if parts.len() == 2 {
+                let minutes: u64 = parts[0].parse().unwrap();
+                let seconds: u64 = parts[1].parse().unwrap();
+                Duration::from_secs(minutes * 60 + seconds)
+            } else {
+                return Err(Error::Scrape("invalid number of parts in length text"));
+            };
+            videos.push(VideoInfo { id, duration });
         }
         tracing::debug!("scraped {} videos from '{}'", videos.len(), channel.title);
         return Ok(Extraction { channel, videos });
     }
     Err(Error::ChannelNotFound(handle.to_string()))
+}
+
+fn find_duration_badge(lockup: &Value) -> Option<&str> {
+    let overlays = lockup["contentImage"]["thumbnailViewModel"]["overlays"].as_array()?;
+    for overlay in overlays {
+        let badges = overlay["thumbnailBottomOverlayViewModel"]["badges"].as_array();
+        let Some(badges) = badges else { continue };
+        for badge in badges {
+            if let Some(text) = badge["thumbnailBadgeViewModel"]["text"].as_str() {
+                if text.contains(':') {
+                    return Some(text);
+                }
+            }
+        }
+    }
+    None
 }
