@@ -19,7 +19,7 @@ pub async fn proxy_feed(handle: &str, client: &Client) -> Result<Feed, Error> {
     // 1. extract channel data and video information from YouTube
     let mut extraction = extractor::extract_data(handle, client).await?;
     let extracted_videos_count = extraction.videos.len();
-    // 2. Use channel id to fetch feed from YouTube RSS server
+    // 2. Use channel id to fetch UULF feed from YouTube RSS server
     let feed = fetch_feed(&extraction.channel.id, client).await?;
     let feed_entries_count = feed.entries.len();
 
@@ -60,9 +60,13 @@ pub async fn proxy_feed(handle: &str, client: &Client) -> Result<Feed, Error> {
 
 /// Get a feed from the YouTube RSS server
 async fn fetch_feed(channel_id: &str, client: &Client) -> Result<AtomFeed, Error> {
+    let playlist_id = format!(
+        "UULF{}",
+        channel_id.strip_prefix("UC").unwrap_or(channel_id)
+    );
     let feed_url = format!(
-        "https://www.youtube.com/feeds/videos.xml?channel_id={}",
-        channel_id
+        "https://www.youtube.com/feeds/videos.xml?playlist_id={}",
+        playlist_id
     );
     tracing::debug!("Fetching feed from '{}'", feed_url);
     let mut attempt = 1;
