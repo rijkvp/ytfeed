@@ -68,8 +68,8 @@ pub async fn extract_data(handle: &str, client: &Client) -> Result<Extraction, E
                     .as_str()
                     .ok_or(Error::Scrape("missing contentId"))?
                     .to_string();
-                let length_text = find_duration_badge(lockup)
-                    .ok_or(Error::Scrape("missing duration badge"))?;
+                let length_text =
+                    find_duration_badge(lockup).ok_or(Error::Scrape("missing duration badge"))?;
                 (id, length_text.to_string())
             } else if let Some(video_renderer) = content.get("videoRenderer") {
                 let id = video_renderer["videoId"]

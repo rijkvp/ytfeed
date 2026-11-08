@@ -45,9 +45,9 @@ impl Filter {
             }
         }
         if self.like_view_ratio {
-            if let Some(likes) = video.likes {
+            if let Some(likes) = video.likes.filter(|_| video.views > 0) {
                 let lvr = likes as f64 / video.views as f64 * 100.0;
-                video.title = format!("{} [{:.1}]", video.title, lvr);
+                video.title = format!("{} [{:.1}%]", video.title, lvr);
             }
         }
         self.filter_description(video);
@@ -58,7 +58,18 @@ impl Filter {
         let text = remove_ads(&video.description);
         let likes_text = video
             .likes
-            .map(|l| format!(", 👍 {} likes", l.to_formatted_string(&Locale::en)))
+            .map(|l| {
+                let lvr_text = if video.views > 0 {
+                    format!(" ({:.1}% LVR)", l as f64 / video.views as f64 * 100.0)
+                } else {
+                    String::new()
+                };
+                format!(
+                    ", 👍 {} likes{}",
+                    l.to_formatted_string(&Locale::en),
+                    lvr_text
+                )
+            })
             .unwrap_or_default();
         let info_text = format!(
             "👀 {} views{}, ⏲️  {}",

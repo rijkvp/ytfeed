@@ -3,6 +3,7 @@ use atom_syndication::{
     Entry, EntryBuilder, Feed as AtomFeed, FeedBuilder, LinkBuilder, PersonBuilder, Text,
 };
 use chrono::{DateTime, FixedOffset, Utc};
+use linkify::{LinkFinder, LinkKind};
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -51,7 +52,7 @@ impl Feed {
                             .title(v.title)
                             .updated(v.updated)
                             .published(v.published)
-                            .summary(Text::plain(v.description))
+                            .summary(Text::html(text_to_html(&v.description)))
                             .build()
                     })
                     .collect::<Vec<Entry>>(),
@@ -108,9 +109,82 @@ impl Video {
     }
 }
 
+/// Convert plain text to HTML: escape it, preserve line breaks and make links clickable.
+fn text_to_html(text: &str) -> String {
+    let mut finder = LinkFinder::new();
+    finder.url_must_have_scheme(false);
+    let mut out = String::with_capacity(text.len());
+    for span in finder.spans(text) {
+        let escaped = escape_html(span.as_str());
+        match span.kind() {
+            Some(LinkKind::Url) => {
+                let s = span.as_str();
+                let lower = s.to_ascii_lowercase();
+                let href = if lower.starts_with("http://") || lower.starts_with("https://") {
+                    escaped.clone()
+                } else if !s.contains("://") {
+                    format!("https://{escaped}")
+                } else {
+                    // Only link http(s) to avoid e.g. javascript:// hrefs
+                    out.push_str(&escaped);
+                    continue;
+                };
+                out.push_str(&format!("<a href=\"{href}\">{escaped}</a>"));
+            }
+            Some(LinkKind::Email) => {
+                out.push_str(&format!("<a href=\"mailto:{escaped}\">{escaped}</a>"));
+            }
+            _ => out.push_str(&escaped),
+        }
+    }
+    out.replace('\n', "<br>\n")
+}
+
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn get_media_field(option: &Option<String>, field_name: &str) -> String {
     option.as_ref().map(|s| s.to_string()).unwrap_or_else(|| {
         tracing::warn!("Failed to parse media field '{}'", field_name);
         format!("ytfeed: Failed to parse field '{}'", field_name)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::text_to_html;
+
+    #[test]
+    fn escapes_and_keeps_line_breaks() {
+        assert_eq!(text_to_html("a & b\n<x>"), "a &amp; b<br>\n&lt;x&gt;");
+    }
+
+    #[test]
+    fn links_urls() {
+        assert_eq!(
+            text_to_html("See https://example.com/a?b=1&c=2."),
+            "See <a href=\"https://example.com/a?b=1&amp;c=2\">https://example.com/a?b=1&amp;c=2</a>."
+        );
+        assert_eq!(
+            text_to_html("(http://x.org/wiki/Foo_(bar))"),
+            "(<a href=\"http://x.org/wiki/Foo_(bar)\">http://x.org/wiki/Foo_(bar)</a>)"
+        );
+        assert_eq!(
+            text_to_html("1. https://a.com\n2. https://b.com"),
+            "1. <a href=\"https://a.com\">https://a.com</a><br>\n2. <a href=\"https://b.com\">https://b.com</a>"
+        );
+        assert_eq!(text_to_html("just https:// here"), "just https:// here");
+        assert_eq!(
+            text_to_html("Visit www.example.com or mail a@b.com"),
+            "Visit <a href=\"https://www.example.com\">www.example.com</a> or mail <a href=\"mailto:a@b.com\">a@b.com</a>"
+        );
+        assert_eq!(
+            text_to_html("javascript://x%0aalert(1) ftp://a.com/f"),
+            "javascript://x%0aalert(1) ftp://a.com/f"
+        );
+    }
 }
