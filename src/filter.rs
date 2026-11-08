@@ -23,7 +23,7 @@ impl Filter {
         let orig_count = feed.videos.len();
         feed.videos.retain_mut(|v| self.filter_video(v));
         if orig_count != feed.videos.len() {
-            tracing::debug!("filtered {} videos", orig_count - feed.videos.len());
+            tracing::debug!("Filtered {} videos", orig_count - feed.videos.len());
         }
         Ok(feed)
     }

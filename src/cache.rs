@@ -11,7 +11,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::broadcast;
-use tracing::debug;
 
 #[derive(Clone)]
 pub struct Cache<K, V>
@@ -77,7 +76,7 @@ where
                 if self.timeout.is_none() || Some(fetched_at.elapsed()) < self.timeout {
                     return Ok(value.clone());
                 } else {
-                    debug!("{key:?} has timed-out, fetching new value");
+                    tracing::debug!("Cache item {key:?} has timed-out, fetching new value");
                 }
             }
 
@@ -98,7 +97,7 @@ where
                     let res = fut.await;
                     {
                         let mut items = items.lock();
-                        let item = items.entry(key).or_default();
+                        let item = items.entry(key.clone()).or_default();
                         item.task = None;
 
                         match res {
@@ -106,9 +105,18 @@ where
                                 item.cached.replace((Instant::now(), value.clone()));
                                 let _ = tx.send(Ok(value));
                             }
-                            Err(e) => {
-                                let _ = tx.send(Err(CacheError(e.to_string())));
-                            }
+                            Err(e) => match item.cached.as_ref() {
+                                Some((fetched_at, stale)) => {
+                                    tracing::warn!(
+                                        "Refreshing {key:?} failed, returning stale item from {:?} ago: {e}",
+                                        fetched_at.elapsed()
+                                    );
+                                    let _ = tx.send(Ok(stale.clone()));
+                                }
+                                None => {
+                                    let _ = tx.send(Err(CacheError(e.to_string())));
+                                }
+                            },
                         };
                     }
                 });

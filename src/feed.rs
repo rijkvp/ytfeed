@@ -90,7 +90,7 @@ impl Video {
         let views: u64 = community.children["statistics"][0].attrs["views"]
             .parse()
             .unwrap_or_else(|_| {
-                tracing::warn!("failed to parse media field 'views'");
+                tracing::warn!("Failed to parse media field 'views'");
                 0
             });
         let title = get_media_field(&group.children["title"][0].value, "title");

@@ -19,7 +19,7 @@ pub struct Extraction {
 /// Extracts channel data and video information by scraping the YouTube website
 pub async fn extract_data(handle: &str, client: &Client) -> Result<Extraction, Error> {
     let videos_url = format!("https://www.youtube.com/@{}/videos", handle);
-    tracing::debug!("scraping channel data from '{}'", videos_url);
+    tracing::debug!("Scraping channel data from '{}'", videos_url);
     let response = client
         .get(&videos_url)
         .header("Accept-Language", "en") // to get data in English locale formats
@@ -99,7 +99,7 @@ pub async fn extract_data(handle: &str, client: &Client) -> Result<Extraction, E
             };
             videos.push(VideoInfo { id, duration });
         }
-        tracing::debug!("scraped {} videos from '{}'", videos.len(), channel.title);
+        tracing::debug!("Scraped {} videos from '{}'", videos.len(), channel.title);
         return Ok(Extraction { channel, videos });
     }
     Err(Error::ChannelNotFound(handle.to_string()))

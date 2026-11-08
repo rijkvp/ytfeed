@@ -77,13 +77,13 @@ async fn main() {
         .route("/health", get(get_health))
         .layer(Extension(client))
         .layer(Extension(HashMap::<String, String>::new()))
-        .layer(Extension(Cache::<String, Option<Feed>>::new(Some(
+        .layer(Extension(Cache::<String, Feed>::new(Some(
             Duration::from_secs(config.cache_timeout),
         ))))
         .layer(Extension(config.base_url))
         .layer(trace_layer);
 
-    tracing::info!("starting server at http://{}", socket_address);
+    tracing::info!("Starting server at http://{}", socket_address);
 
     let listener = TcpListener::bind(socket_address).await.unwrap();
     axum::serve(listener, router).await.unwrap();
@@ -93,29 +93,28 @@ async fn get_feed(
     Path(handle): Path<String>,
     Query(filter): Query<Filter>,
     Extension(http_client): Extension<Client>,
-    Extension(feed_cache): Extension<Cache<String, Option<Feed>>>,
+    Extension(feed_cache): Extension<Cache<String, Feed>>,
     Extension(base_url): Extension<String>,
 ) -> Result<Response, Error> {
-    tracing::info!("get feed '{}'", handle);
+    tracing::info!("Get feed '{}'", handle);
 
     let feed = {
-        let handle = handle.clone();
+        let fetch_handle = handle.clone();
         let http_client = http_client.clone();
         feed_cache
             .get_cached(handle.clone(), || {
                 Box::pin(async move {
-                    match proxy::proxy_feed(&handle, &http_client).await {
-                        Ok(feed) => Ok::<_, Error>(Some(feed)),
-                        Err(err) => {
-                            tracing::error!("failed to get data from channel '{handle}': {err}");
-                            Ok::<_, Error>(None)
-                        }
-                    }
+                    let handle = fetch_handle;
+                    proxy::proxy_feed(&handle, &http_client)
+                        .await
+                        .inspect_err(|err| {
+                            tracing::error!("Failed to get data from channel '{handle}': {err}");
+                        })
                 })
             })
-            .await?
-    }
-    .ok_or(Error::Proxy(handle.clone()))?;
+            .await
+            .map_err(|_| Error::Proxy(handle.clone()))?
+    };
 
     let filtered_feed = filter.apply(feed)?;
 

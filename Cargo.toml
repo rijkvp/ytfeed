@@ -1,6 +1,6 @@
 [package]
 name = "ytfeed"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 authors = ["Rijk van Putten <rijk@rijkvp.nl>"]
 description = "Better RSS/Atom feeds for YouTube"
@@ -11,20 +11,20 @@ license = "AGPL-3.0"
 [dependencies]
 atom_syndication = "0.12"
 axum = { version = "0.8" }
-bytes = "1.11"
+bytes = "1.12"
 chrono = "0.4"
 clap = { version = "4.6", features = ["derive"] }
 futures = "0.3"
 num-format = "0.4"
-parking_lot = "0.12"
+parking_lot = "0.13"
 reqwest = { version = "0.13", features = [ "gzip", "brotli", "zstd" ] }
-scraper = "0.26"
+scraper = "0.29"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_html_form = "0.4"
 serde_json = "1.0"
 thiserror = "2.0"
-tokio = { version = "1", features = ["rt", "rt-multi-thread"] }
-tower-http = { version = "0.6", features = ["trace"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
+tower-http = { version = "0.7", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
